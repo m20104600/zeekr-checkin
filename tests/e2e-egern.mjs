@@ -174,5 +174,75 @@ sink = null;
 check("提示使用存储里的 Token", logs3.some((l) => l.indexOf("使用持久化存储里的 Token") >= 0));
 check("成功进入领取阶段", logs3.some((l) => l.indexOf("本次领取") >= 0));
 
+console.log("\n== D. 抓取通知：变化就报 / 没变化每天报一次平安 / 点通知可复制 ==");
+{
+  const mkReq = () => ({
+    method: "GET",
+    url: "https://api-gw-toc.zeekrlife.com/zeekrlife-app-user/v1/user/info/query",
+    headers: {
+      get: (n) => (String(n).toLowerCase() === "authorization" ? bearer : null),
+      authorization: bearer,
+    },
+  });
+
+  // D1: 第一次抓 → 存 + 弹「已自动保存」，并带 clipboard action
+  const s1 = {};
+  const n1 = [];
+  const c1 = makeCtx({}, s1, [], n1);
+  c1.request = mkReq();
+  await run(c1);
+  check("D1 首次抓取弹「已自动保存」", n1.length === 1 && n1[0].title.indexOf("已自动保存") >= 0, JSON.stringify(n1.map((x) => x.title)));
+  check("D1 写入节流时间戳 zeekr_cap_last", !!s1.zeekr_cap_last);
+  check("D1 通知带 clipboard action（点一下即复制 Token）", !!(n1[0].action && n1[0].action.type === "clipboard" && n1[0].action.text === bearer), JSON.stringify(n1[0].action || null));
+
+  // D2: 同一个 Token 紧接着再抓 → 不再打扰（节流）
+  const n2 = [];
+  const c2 = makeCtx({}, s1, [], n2);
+  c2.request = mkReq();
+  await run(c2);
+  check("D2 Token 没变化、刚通知过 → 不弹通知（避免每次开 App 都响）", n2.length === 0, JSON.stringify(n2.map((x) => x.title)));
+
+  // D3: 同一个 Token，但上次通知已过 25 小时 → 报一次平安
+  const s3 = { zeekr_val: s1.zeekr_val, zeekr_cap_last: String(Date.now() - 25 * 3600 * 1000) };
+  const n3 = [];
+  const c3 = makeCtx({}, s3, [], n3);
+  c3.request = mkReq();
+  await run(c3);
+  check("D3 超过 24 小时没报过 → 弹「抓取正常」平安通知", n3.length === 1 && n3[0].title.indexOf("抓取正常") >= 0, JSON.stringify(n3.map((x) => x.title)));
+  check("D3 平安通知里说明 Token 未变化", (n3[0].body || "").indexOf("未变化") >= 0);
+
+  // D4: 参数自检 → 报出「定时任务用哪个 Token」+ 完整 Token + 「留空即可」说明
+  const n4 = [];
+  const c4 = makeCtx({ ZEEKR_MODE: "selfcheck" }, { zeekr_val: s1.zeekr_val }, [], n4);
+  const r4 = await run(c4);
+  const b4 = (n4[0] && n4[0].body) || "";
+  check("D4 自检通知发出", n4.length === 1 && !!r4.selfcheck);
+  check("D4 自检说明定时任务用哪个 Token", b4.indexOf("定时任务用哪个 Token") >= 0, b4.slice(0, 60));
+  check("D4 自检给出完整可用 Token（便于复制到别处）", b4.indexOf(bearer) >= 0);
+  check("D4 自检说明模块那栏留空即可", b4.indexOf("留空即可") >= 0 && b4.indexOf("zeekr_val") >= 0);
+
+  // D5: 关闭「通知里显示完整 Token」→ 不显示 Token，但也不影响存储
+  const s5 = {};
+  const n5 = [];
+  const c5 = makeCtx({ ZEEKR_CAPSHOW: "false" }, s5, [], n5);
+  c5.request = mkReq();
+  await run(c5);
+  check("D5 CAPSHOW=false 时通知里不带 Token 全文", n5.length === 1 && (n5[0].body || "").indexOf(bearer) < 0);
+  check("D5 CAPSHOW=false 时依然写入存储", !!s5.zeekr_val && !!JSON.parse(s5.zeekr_val).authorization);
+  check("D5 CAPSHOW=false 时不带 clipboard action", !n5[0].action);
+
+  // D6: 通知里带脚本版本号 —— 用来判断客户端是不是还在跑缓存里的旧脚本
+  check("D6 抓取通知里带脚本版本", /脚本 v\d+\.\d+\.\d+/.test((n1[0].body || "")) && (n1[0].body || "").indexOf("脚本 v") >= 0, (n1[0].body || "").split("\n").slice(-1)[0]);
+
+  // D7: 自检遇到旧版残留参数 ZEEKR_CAPON → 明确说是废弃、不生效
+  const n7 = [];
+  const c7 = makeCtx({ ZEEKR_MODE: "selfcheck", ZEEKR_CAPON: "false" }, { zeekr_val: s1.zeekr_val }, [], n7);
+  await run(c7);
+  const b7 = (n7[0] && n7[0].body) || "";
+  check("D7 自检报出脚本版本", b7.indexOf("脚本 v") >= 0);
+  check("D7 自检把 ZEEKR_CAPON 标为已废弃", b7.indexOf("ZEEKR_CAPON") >= 0 && b7.indexOf("已废弃") >= 0, b7.split("\n").filter((l) => l.indexOf("CAPON") >= 0).join("|"));
+  check("D7 自检说明只认 CAPOFF", b7.indexOf("CAPOFF") >= 0);
+}
+
 console.log("\n结果: " + pass + " 通过, " + fail + " 失败");
 process.exit(fail ? 1 : 0);

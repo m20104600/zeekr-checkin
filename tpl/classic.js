@@ -271,28 +271,31 @@ var ZEEKR_DEFAULT_CONFIG = {
    * 定时任务上下文：env 里没 Token 就用存储里的兜底。
    * ─────────────────────────────────────────────────────────────────── */
   var ZEEKR_STORE_KEY = "zeekr_val";
+  var ZEEKR_NOTIFY_KEY = "zeekr_cap_last"; // 上次「抓取成功」通知的时间戳（做节流用）
 
-  function storeRead() {
+  function storeRead(key) {
+    var k = key || ZEEKR_STORE_KEY;
     try {
       if (typeof $persistentStore !== "undefined" && $persistentStore && $persistentStore.read)
-        return $persistentStore.read(ZEEKR_STORE_KEY);
+        return $persistentStore.read(k);
     } catch (e) {}
     try {
       if (typeof $prefs !== "undefined" && $prefs && $prefs.valueForKey)
-        return $prefs.valueForKey(ZEEKR_STORE_KEY);
+        return $prefs.valueForKey(k);
     } catch (e2) {}
     return null;
   }
-  function storeWrite(val) {
+  function storeWrite(val, key) {
+    var k = key || ZEEKR_STORE_KEY;
     try {
       if (typeof $persistentStore !== "undefined" && $persistentStore && $persistentStore.write) {
-        $persistentStore.write(val, ZEEKR_STORE_KEY);
+        $persistentStore.write(val, k);
         return true;
       }
     } catch (e) {}
     try {
       if (typeof $prefs !== "undefined" && $prefs && $prefs.setValueForKey) {
-        $prefs.setValueForKey(val, ZEEKR_STORE_KEY);
+        $prefs.setValueForKey(val, k);
         return true;
       }
     } catch (e2) {}
@@ -379,18 +382,22 @@ var ZEEKR_DEFAULT_CONFIG = {
           (stored ? "（已存 ✓）" : "（⚠️ 存储写入失败）") +
           (ruleName ? " 规则:" + ruleName : "")
       );
-      if (prev !== auth || capDebug) {
+      if (prev !== auth || capDebug || !stored || zeekrShouldNotify(prev, auth, storeRead(ZEEKR_NOTIFY_KEY), false)) {
+        var changed = prev !== auth;
         var body =
           tip +
           "\n" +
           (stored ? "已存入客户端持久化存储 ✓，定时任务会自动使用" : "⚠️ 存储写入失败：定时任务无法自动使用，请改用参数手填 TOKEN") +
-          (ruleName ? "\n触发规则：" + ruleName : "");
+          (changed ? "" : "（Token 与上次相同，未变化）") +
+          (ruleName ? "\n触发规则：" + ruleName : "") +
+          "\n脚本 v" + ZEEKR_PORT_VERSION;
         if (showTokFlag) {
           body +=
             "\n\n青龙等无法自动抓取的平台，把这行复制过去当 Token：\n" + auth;
           log("[极氪签到] 🔐 可复制给青龙的 Token: " + auth);
         }
-        notify("✅ 极氪 Token 已自动保存", body);
+        storeWrite(String(Date.now()), ZEEKR_NOTIFY_KEY);
+        notify(changed ? "✅ 极氪 Token 已自动保存" : "✅ 极氪 Token 抓取正常", body);
       }
     } else {
       log("[极氪签到] ⚠️ 这条请求没有 Authorization 头，未抓取");

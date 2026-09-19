@@ -129,8 +129,9 @@ try:
           not bad_entry and len(kinds) >= 7, f"kinds={kinds} bad={len(bad_entry)}")
     check("egern.yaml 里有 2 个手动自检脚本（参数自检 + Token自检）", kinds.count("generic") == 2, kinds)
     check("egern.yaml 里有响应阶段兜底规则", kinds.count("http_response") == 1, kinds)
+    _missing_ui = [i for i in eg_doc["scriptings"] if "update_interval" not in list(i.values())[0]]
     check("egern.yaml 的 scriptings 都设了 update_interval（改动能自动生效）",
-          read("egern.yaml").count("update_interval:") == len(kinds), read("egern.yaml").count("update_interval:"))
+          not _missing_ui, f"缺少 {len(_missing_ui)} 条（共 {len(eg_doc['scriptings'])} 条）")
     check("egern.yaml 含 1 条 http_request + 6 条 schedule",
           kinds.count("http_request") == 1 and kinds.count("schedule") == 6, kinds)
     check("egern.yaml 的 schedule 都带 env（MODE/TAG）",

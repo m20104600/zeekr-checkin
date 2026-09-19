@@ -106,11 +106,15 @@ const headers = {
   device_id: "dev-1",
 };
 const ctx2 = makeCtx({}, store2, logs2, notifies2);
+ctx2.script = { name: '极氪抓Token(响应阶段兜底)' };
 ctx2.request = { method: "GET", url: "https://api-gw-toc.zeekrlife.com/zeekrlife-app-user/v1/user/info/query", headers };
 const r2 = await run(ctx2);
 check("抓取后直接返回（不跑签到）", r2 === undefined && !logs2.some((l) => l.indexOf("本次领取") >= 0));
 check("Token 已写入 ctx.storage", !!store2.zeekr_val && !!JSON.parse(store2.zeekr_val).authorization);
 check("通知「已自动保存」", notifies2.length === 1 && notifies2[0].title.indexOf("已自动保存") >= 0, JSON.stringify(notifies2));
+check("通知里带完整 Token", (notifies2[0].body || '').indexOf(bearer) >= 0);
+check("通知里回显是哪条规则触发的", (notifies2[0].body || '').indexOf('触发规则：') >= 0 && (notifies2[0].body || '').indexOf('响应阶段兜底') >= 0);
+check("通知里说明已存入存储", (notifies2[0].body || '').indexOf('已存入客户端持久化存储') >= 0);
 
 console.log("\n== C. 抓一次后免填 Token（storage 兜底）==");
 const logs3 = [];

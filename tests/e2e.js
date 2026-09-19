@@ -206,6 +206,8 @@ const has = (logs, s) => logs.some((l) => l.indexOf(s) >= 0);
     check("通知里带 Token 到期日", r.notifies.some((n) => /有效期至 \d{4}\//.test(n.body || "")));
     check("通知里带完整 Token（手机抓完复制给青龙用）",
       r.notifies.some((n) => (n.body || "").indexOf(TOKEN) >= 0));
+    check("通知里回显触发规则 + 已存入存储",
+      r.notifies.some((n) => (n.body || "").indexOf("触发规则：") >= 0 && (n.body || "").indexOf("已存入客户端持久化存储") >= 0));
   }
 
   console.log("\n== D2. CAPSHOW=0：通知里不显示 Token，但存储照写 ==");

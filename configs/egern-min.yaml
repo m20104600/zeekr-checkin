@@ -42,7 +42,7 @@ scriptings:
   - http_request:
       name: "极氪抓Token·最小测试"
       match: '^https://api-gw-toc\.zeekrlife\.com/'
-      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/b1e53dff8b439fe9f1ab3ad6a41e48c806dab798/dist/zeekr.egern.js"
+      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/432f166aef13fae83d563c26157ccd381ae8432e/dist/zeekr.egern.js"
       update_interval: 600
       timeout: 20
       env:
@@ -53,7 +53,7 @@ scriptings:
   - http_response:
       name: "极氪抓Token·响应兜底"
       match: '^https://api-gw-toc\.zeekrlife\.com/'
-      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/b1e53dff8b439fe9f1ab3ad6a41e48c806dab798/dist/zeekr.egern.js"
+      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/432f166aef13fae83d563c26157ccd381ae8432e/dist/zeekr.egern.js"
       update_interval: 600
       timeout: 20
       env:

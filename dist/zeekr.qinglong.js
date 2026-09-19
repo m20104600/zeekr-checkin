@@ -36,7 +36,7 @@ var ZEEKR_DEFAULT_CONFIG = {};
  * 依赖注入：RT = { platform, env, http(), notify(), log(), finish() }
  * ========================================================================== */
 
-var ZEEKR_PORT_VERSION = "3.0.0";
+var ZEEKR_PORT_VERSION = "3.1.0";
 /* 签名密钥由 build.py 从本地 checkin.mjs 抽取后注入（避免密钥出现在源码/终端里被安全屏蔽器打码） */
 var ZEEKR_SECRET = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCz09z6e9WOcNq+nUMX8Vq1Xe2EmJxuR3XbturefioF)E(Fl";
 var ZEEKR_BASE = "https://api-gw-toc.zeekrlife.com";
@@ -267,25 +267,6 @@ function zeekrCSTDate(ms) {
 }
 
 /* ---------------- 参数读取 ---------------- */
-
-/**
- * 抓取通知节流：Token **没有变化**时不必每次都弹通知（否则每开一次 App 就弹一次）。
- * 但完全不弹会让用户以为"抓取失效了"（2026-09-19 就是因为这个被误判成抓不到），
- * 所以没变化时也每 24 小时报一次「平安」。CAPDEBUG 打开时每次都弹。
- *
- * @param {string} prevVal 存储里原来的 Token（没有则为 ""）
- * @param {string} newVal  这次抓到的 Token
- * @param {string} lastTs  上次弹通知的时间戳（毫秒字符串，可为空）
- * @param {boolean} debug  CAPDEBUG 开关
- */
-var ZEEKR_NOTIFY_TTL_MS = 24 * 3600 * 1000;
-function zeekrShouldNotify(prevVal, newVal, lastTs, debug) {
-  if (debug) return true;
-  if (prevVal !== newVal) return true;
-  var t = parseInt(lastTs || "0", 10);
-  if (!t || isNaN(t)) return true;
-  return Date.now() - t > ZEEKR_NOTIFY_TTL_MS;
-}
 
 /**
  * 读一个布尔开关（跨客户端都一样）：

@@ -44,7 +44,6 @@ export default async function (ctx) {
 
   /* ── 持久化存储 + Token 自动抓取 ─────────────────────────────────────── */
   var ZEEKR_STORE_KEY = "zeekr_val";
-  var ZEEKR_NOTIFY_KEY = "zeekr_cap_last"; // 上次「抓取成功」通知的时间戳（节流用）
 
   function storeRead(key) {
     try {
@@ -116,10 +115,10 @@ export default async function (ctx) {
         // 回读确认（有些运行环境在请求脚本里不允许写存储）
         backEg = zeekrTokenFromStore(storeRead());
       }
+      // 抓到就通知（开关没关就一定有反馈，不会"明明抓到了却什么也没看到"）
       var storedEg = backEg === auth;
       var changedEg = prevEg !== auth;
       var showTokEg = zeekrReadFlag(env, ["CAPSHOW"], true);
-      var dueEg = zeekrShouldNotify(prevEg, auth, storeRead(ZEEKR_NOTIFY_KEY), false);
       var ruleNameEg = (ctx && ctx.script && ctx.script.name) || "";
       var tiEg = zeekrParseToken(auth);
       var tipEg =
@@ -136,36 +135,24 @@ export default async function (ctx) {
           (storedEg ? "（已存 ✓）" : "（⚠️ 存储写入失败）") +
           (ruleNameEg ? " 规则:" + ruleNameEg : "")
       );
-      // 通知：Token 变化 / 存储写失败 / 每天一次平安 / 调试模式
-      if (changedEg || !storedEg || dueEg || capDebug) {
-        var bodyEg =
-          (changedEg ? "" : "（Token 与上次相同，未变化）\n") +
-          tipEg +
-          "\n" +
-          (storedEg
+      var bodyEg =
+        tipEg +
+        "\n" +
+        (storedEg
+          ? changedEg
             ? "已存入客户端持久化存储 ✓，定时任务会自动使用"
-            : "⚠️ 存储写入失败：定时任务无法自动使用，请改用模块参数手填 ZEEKR_TOKEN") +
-          (ruleNameEg ? "\n触发规则：" + ruleNameEg : "") +
-          "\n脚本 v" + ZEEKR_PORT_VERSION;
-        if (showTokEg) {
-          bodyEg +=
-            "\n\n青龙 / 模块参数要用的话，点这条通知即复制 Token：\n" + auth;
-        } else {
-          bodyEg += "\n（「通知里显示完整 Token」关着，需要复制就把它打开）";
-        }
+            : "和上次抓到的一样，已存着；定时任务会自动使用"
+          : "⚠️ 存储写入失败：定时任务无法自动使用，请改用模块参数手填 ZEEKR_TOKEN") +
+        (ruleNameEg ? "\n触发规则：" + ruleNameEg : "") +
+        "\n脚本 v" + ZEEKR_PORT_VERSION;
+      if (showTokEg) {
+        bodyEg += "\n\n青龙等抓不了的平台，把这行复制过去当 Token：\n" + auth;
         log("[极氪签到] 🔐 可复制给青龙的 Token: " + auth);
-        try {
-          var noteEg = {
-            title: changedEg ? "✅ 极氪 Token 已自动保存" : "✅ 极氪 Token 抓取正常",
-            body: bodyEg,
-          };
-          // 点通知直接把 Token 复制进剪贴板（Egern 支持 clipboard action）
-          if (showTokEg) noteEg.action = { type: "clipboard", text: auth };
-          ctx.notify(noteEg);
-        } catch (eNote) {
-          log("[极氪签到] ⚠️ 通知失败: " + eNote);
-        }
-        storeWrite(String(Date.now()), ZEEKR_NOTIFY_KEY);
+      }
+      try {
+        ctx.notify({ title: "✅ 极氪 Token 已保存", body: bodyEg });
+      } catch (eNote) {
+        log("[极氪签到] ⚠️ 通知失败: " + eNote);
       }
     } else {
       log("[极氪签到] ⚠️ 这条请求没有 Authorization 头，未抓取");

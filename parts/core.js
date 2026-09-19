@@ -237,25 +237,6 @@ function zeekrCSTDate(ms) {
 /* ---------------- 参数读取 ---------------- */
 
 /**
- * 抓取通知节流：Token **没有变化**时不必每次都弹通知（否则每开一次 App 就弹一次）。
- * 但完全不弹会让用户以为"抓取失效了"（2026-09-19 就是因为这个被误判成抓不到），
- * 所以没变化时也每 24 小时报一次「平安」。CAPDEBUG 打开时每次都弹。
- *
- * @param {string} prevVal 存储里原来的 Token（没有则为 ""）
- * @param {string} newVal  这次抓到的 Token
- * @param {string} lastTs  上次弹通知的时间戳（毫秒字符串，可为空）
- * @param {boolean} debug  CAPDEBUG 开关
- */
-var ZEEKR_NOTIFY_TTL_MS = 24 * 3600 * 1000;
-function zeekrShouldNotify(prevVal, newVal, lastTs, debug) {
-  if (debug) return true;
-  if (prevVal !== newVal) return true;
-  var t = parseInt(lastTs || "0", 10);
-  if (!t || isNaN(t)) return true;
-  return Date.now() - t > ZEEKR_NOTIFY_TTL_MS;
-}
-
-/**
  * 读一个布尔开关（跨客户端都一样）：
  *   - 大小写不敏感、前缀 ZEEKR_ 可有可无、值能带引号
  *   - 支持真布尔（有些客户端 env 传的是 boolean 而不是字符串）

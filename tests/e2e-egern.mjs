@@ -111,7 +111,7 @@ ctx2.request = { method: "GET", url: "https://api-gw-toc.zeekrlife.com/zeekrlife
 const r2 = await run(ctx2);
 check("抓取后直接返回（不跑签到）", r2 === undefined && !logs2.some((l) => l.indexOf("本次领取") >= 0));
 check("Token 已写入 ctx.storage", !!store2.zeekr_val && !!JSON.parse(store2.zeekr_val).authorization);
-check("通知「已自动保存」", notifies2.length === 1 && notifies2[0].title.indexOf("已自动保存") >= 0, JSON.stringify(notifies2));
+check("通知「已保存」", notifies2.length === 1 && notifies2[0].title.indexOf("已保存") >= 0, JSON.stringify(notifies2));
 check("通知里带完整 Token", (notifies2[0].body || '').indexOf(bearer) >= 0);
 check("通知里回显是哪条规则触发的", (notifies2[0].body || '').indexOf('触发规则：') >= 0 && (notifies2[0].body || '').indexOf('响应阶段兜底') >= 0);
 check("通知里说明已存入存储", (notifies2[0].body || '').indexOf('已存入客户端持久化存储') >= 0);
@@ -150,7 +150,7 @@ console.log("\n== B3. Egern：残留 CAPON=false 不影响抓取（事故回归�
   await run(ctxB3);
   sink = null;
   check("CAPON=false 时依然抓取", !!storeB3.zeekr_val);
-  check("依然有抓取通知", notesB3.some((n) => n.title.indexOf("已自动保存") >= 0));
+  check("依然有抓取通知", notesB3.some((n) => n.title.indexOf("已保存") >= 0));
 
   const logsB4 = [];
   const notesB4 = [];
@@ -174,7 +174,7 @@ sink = null;
 check("提示使用存储里的 Token", logs3.some((l) => l.indexOf("使用持久化存储里的 Token") >= 0));
 check("成功进入领取阶段", logs3.some((l) => l.indexOf("本次领取") >= 0));
 
-console.log("\n== D. 抓取通知：变化就报 / 没变化每天报一次平安 / 点通知可复制 ==");
+console.log("\n== D. 抓取开关 + 通知（默认=抓；开关打开=不抓）==");
 {
   const mkReq = () => ({
     method: "GET",
@@ -185,31 +185,27 @@ console.log("\n== D. 抓取通知：变化就报 / 没变化每天报一次平�
     },
   });
 
-  // D1: 第一次抓 → 存 + 弹「已自动保存」，并带 clipboard action
+  // D1: 没设任何开关（默认）→ 抓到就存 + 弹通知（含完整 Token）
   const s1 = {};
   const n1 = [];
   const c1 = makeCtx({}, s1, [], n1);
   c1.request = mkReq();
   await run(c1);
-  check("D1 首次抓取弹「已自动保存」", n1.length === 1 && n1[0].title.indexOf("已自动保存") >= 0, JSON.stringify(n1.map((x) => x.title)));
-  check("D1 写入节流时间戳 zeekr_cap_last", !!s1.zeekr_cap_last);
-  check("D1 通知带 clipboard action（点一下即复制 Token）", !!(n1[0].action && n1[0].action.type === "clipboard" && n1[0].action.text === bearer), JSON.stringify(n1[0].action || null));
+  check("D1 默认就抓取", !!s1.zeekr_val && !!JSON.parse(s1.zeekr_val).authorization);
+  check("D1 弹「已保存」通知", n1.length === 1 && n1[0].title.indexOf("已保存") >= 0, JSON.stringify(n1.map((x) => x.title)));
+  check("D1 通知里带完整 Token", (n1[0].body || "").indexOf(bearer) >= 0);
+  check("D1 通知里带到期时间", /有效期至 \d{4}\//.test(n1[0].body || ""));
 
-  // D2: 同一个 Token 紧接着再抓 → 不再打扰（节流）
+  // D2: 同一个 Token 再抓一次 → 仍然通知（不再静默，避免"其实抓到了却看不到"）
   const n2 = [];
   const c2 = makeCtx({}, s1, [], n2);
   c2.request = mkReq();
   await run(c2);
-  check("D2 Token 没变化、刚通知过 → 不弹通知（避免每次开 App 都响）", n2.length === 0, JSON.stringify(n2.map((x) => x.title)));
+  check("D2 Token 相同也照样通知（不静默）", n2.length === 1 && (n2[0].body || "").indexOf(bearer) >= 0, JSON.stringify(n2.map((x) => x.title)));
+  check("D2 说明是同一个 Token", (n2[0].body || "").indexOf("和上次抓到的一样") >= 0);
 
-  // D3: 同一个 Token，但上次通知已过 25 小时 → 报一次平安
-  const s3 = { zeekr_val: s1.zeekr_val, zeekr_cap_last: String(Date.now() - 25 * 3600 * 1000) };
-  const n3 = [];
-  const c3 = makeCtx({}, s3, [], n3);
-  c3.request = mkReq();
-  await run(c3);
-  check("D3 超过 24 小时没报过 → 弹「抓取正常」平安通知", n3.length === 1 && n3[0].title.indexOf("抓取正常") >= 0, JSON.stringify(n3.map((x) => x.title)));
-  check("D3 平安通知里说明 Token 未变化", (n3[0].body || "").indexOf("未变化") >= 0);
+  // D3: 不再写额外的节流键（上一版的复杂度已移除）
+  check("D3 只写 zeekr_val，不写多余键", Object.keys(s1).length === 1 && !!s1.zeekr_val, JSON.stringify(Object.keys(s1)));
 
   // D4: 参数自检 → 报出「定时任务用哪个 Token」+ 完整 Token + 「留空即可」说明
   const n4 = [];
@@ -229,7 +225,6 @@ console.log("\n== D. 抓取通知：变化就报 / 没变化每天报一次平�
   await run(c5);
   check("D5 CAPSHOW=false 时通知里不带 Token 全文", n5.length === 1 && (n5[0].body || "").indexOf(bearer) < 0);
   check("D5 CAPSHOW=false 时依然写入存储", !!s5.zeekr_val && !!JSON.parse(s5.zeekr_val).authorization);
-  check("D5 CAPSHOW=false 时不带 clipboard action", !n5[0].action);
 
   // D6: 通知里带脚本版本号 —— 用来判断客户端是不是还在跑缓存里的旧脚本
   check("D6 抓取通知里带脚本版本", /脚本 v\d+\.\d+\.\d+/.test((n1[0].body || "")) && (n1[0].body || "").indexOf("脚本 v") >= 0, (n1[0].body || "").split("\n").slice(-1)[0]);

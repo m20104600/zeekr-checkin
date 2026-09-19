@@ -44,7 +44,7 @@ var ZEEKR_DEFAULT_CONFIG = {
  * 依赖注入：RT = { platform, env, http(), notify(), log(), finish() }
  * ========================================================================== */
 
-var ZEEKR_PORT_VERSION = "3.0.0";
+var ZEEKR_PORT_VERSION = "3.1.0";
 /* 签名密钥由 build.py 从本地 checkin.mjs 抽取后注入（避免密钥出现在源码/终端里被安全屏蔽器打码） */
 var ZEEKR_SECRET = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCz09z6e9WOcNq+nUMX8Vq1Xe2EmJxuR3XbturefioF)E(Fl";
 var ZEEKR_BASE = "https://api-gw-toc.zeekrlife.com";
@@ -275,25 +275,6 @@ function zeekrCSTDate(ms) {
 }
 
 /* ---------------- 参数读取 ---------------- */
-
-/**
- * 抓取通知节流：Token **没有变化**时不必每次都弹通知（否则每开一次 App 就弹一次）。
- * 但完全不弹会让用户以为"抓取失效了"（2026-09-19 就是因为这个被误判成抓不到），
- * 所以没变化时也每 24 小时报一次「平安」。CAPDEBUG 打开时每次都弹。
- *
- * @param {string} prevVal 存储里原来的 Token（没有则为 ""）
- * @param {string} newVal  这次抓到的 Token
- * @param {string} lastTs  上次弹通知的时间戳（毫秒字符串，可为空）
- * @param {boolean} debug  CAPDEBUG 开关
- */
-var ZEEKR_NOTIFY_TTL_MS = 24 * 3600 * 1000;
-function zeekrShouldNotify(prevVal, newVal, lastTs, debug) {
-  if (debug) return true;
-  if (prevVal !== newVal) return true;
-  var t = parseInt(lastTs || "0", 10);
-  if (!t || isNaN(t)) return true;
-  return Date.now() - t > ZEEKR_NOTIFY_TTL_MS;
-}
 
 /**
  * 读一个布尔开关（跨客户端都一样）：
@@ -1479,8 +1460,6 @@ async function zeekrMain(RT) {
    * 定时任务上下文：env 里没 Token 就用存储里的兜底。
    * ─────────────────────────────────────────────────────────────────── */
   var ZEEKR_STORE_KEY = "zeekr_val";
-  var ZEEKR_NOTIFY_KEY = "zeekr_cap_last"; // 上次「抓取成功」通知的时间戳（做节流用）
-
   function storeRead(key) {
     var k = key || ZEEKR_STORE_KEY;
     try {
@@ -1590,23 +1569,23 @@ async function zeekrMain(RT) {
           (stored ? "（已存 ✓）" : "（⚠️ 存储写入失败）") +
           (ruleName ? " 规则:" + ruleName : "")
       );
-      if (prev !== auth || capDebug || !stored || zeekrShouldNotify(prev, auth, storeRead(ZEEKR_NOTIFY_KEY), false)) {
-        var changed = prev !== auth;
-        var body =
-          tip +
-          "\n" +
-          (stored ? "已存入客户端持久化存储 ✓，定时任务会自动使用" : "⚠️ 存储写入失败：定时任务无法自动使用，请改用参数手填 TOKEN") +
-          (changed ? "" : "（Token 与上次相同，未变化）") +
-          (ruleName ? "\n触发规则：" + ruleName : "") +
-          "\n脚本 v" + ZEEKR_PORT_VERSION;
-        if (showTokFlag) {
-          body +=
-            "\n\n青龙等无法自动抓取的平台，把这行复制过去当 Token：\n" + auth;
-          log("[极氪签到] 🔐 可复制给青龙的 Token: " + auth);
-        }
-        storeWrite(String(Date.now()), ZEEKR_NOTIFY_KEY);
-        notify(changed ? "✅ 极氪 Token 已自动保存" : "✅ 极氪 Token 抓取正常", body);
+      // 抓到就通知（开关没关就一定有反馈）
+      var changed = prev !== auth;
+      var body =
+        tip +
+        "\n" +
+        (stored
+          ? changed
+            ? "已存入客户端持久化存储 ✓，定时任务会自动使用"
+            : "和上次抓到的一样，已存着；定时任务会自动使用"
+          : "⚠️ 存储写入失败：定时任务无法自动使用，请改用参数手填 TOKEN") +
+        (ruleName ? "\n触发规则：" + ruleName : "") +
+        "\n脚本 v" + ZEEKR_PORT_VERSION;
+      if (showTokFlag) {
+        body += "\n\n青龙等无法自动抓取的平台，把这行复制过去当 Token：\n" + auth;
+        log("[极氪签到] 🔐 可复制给青龙的 Token: " + auth);
       }
+      notify("✅ 极氪 Token 已保存", body);
     } else {
       log("[极氪签到] ⚠️ 这条请求没有 Authorization 头，未抓取");
     }

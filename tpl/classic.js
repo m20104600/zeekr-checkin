@@ -271,8 +271,6 @@ var ZEEKR_DEFAULT_CONFIG = {
    * 定时任务上下文：env 里没 Token 就用存储里的兜底。
    * ─────────────────────────────────────────────────────────────────── */
   var ZEEKR_STORE_KEY = "zeekr_val";
-  var ZEEKR_NOTIFY_KEY = "zeekr_cap_last"; // 上次「抓取成功」通知的时间戳（做节流用）
-
   function storeRead(key) {
     var k = key || ZEEKR_STORE_KEY;
     try {
@@ -382,23 +380,23 @@ var ZEEKR_DEFAULT_CONFIG = {
           (stored ? "（已存 ✓）" : "（⚠️ 存储写入失败）") +
           (ruleName ? " 规则:" + ruleName : "")
       );
-      if (prev !== auth || capDebug || !stored || zeekrShouldNotify(prev, auth, storeRead(ZEEKR_NOTIFY_KEY), false)) {
-        var changed = prev !== auth;
-        var body =
-          tip +
-          "\n" +
-          (stored ? "已存入客户端持久化存储 ✓，定时任务会自动使用" : "⚠️ 存储写入失败：定时任务无法自动使用，请改用参数手填 TOKEN") +
-          (changed ? "" : "（Token 与上次相同，未变化）") +
-          (ruleName ? "\n触发规则：" + ruleName : "") +
-          "\n脚本 v" + ZEEKR_PORT_VERSION;
-        if (showTokFlag) {
-          body +=
-            "\n\n青龙等无法自动抓取的平台，把这行复制过去当 Token：\n" + auth;
-          log("[极氪签到] 🔐 可复制给青龙的 Token: " + auth);
-        }
-        storeWrite(String(Date.now()), ZEEKR_NOTIFY_KEY);
-        notify(changed ? "✅ 极氪 Token 已自动保存" : "✅ 极氪 Token 抓取正常", body);
+      // 抓到就通知（开关没关就一定有反馈）
+      var changed = prev !== auth;
+      var body =
+        tip +
+        "\n" +
+        (stored
+          ? changed
+            ? "已存入客户端持久化存储 ✓，定时任务会自动使用"
+            : "和上次抓到的一样，已存着；定时任务会自动使用"
+          : "⚠️ 存储写入失败：定时任务无法自动使用，请改用参数手填 TOKEN") +
+        (ruleName ? "\n触发规则：" + ruleName : "") +
+        "\n脚本 v" + ZEEKR_PORT_VERSION;
+      if (showTokFlag) {
+        body += "\n\n青龙等无法自动抓取的平台，把这行复制过去当 Token：\n" + auth;
+        log("[极氪签到] 🔐 可复制给青龙的 Token: " + auth);
       }
+      notify("✅ 极氪 Token 已保存", body);
     } else {
       log("[极氪签到] ⚠️ 这条请求没有 Authorization 头，未抓取");
     }

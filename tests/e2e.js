@@ -201,7 +201,7 @@ const has = (logs, s) => logs.some((l) => l.indexOf(s) >= 0);
         return false;
       }
     })());
-    check("发了「Token 已自动保存」通知", r.notifies.some((n) => n.title.indexOf("已自动保存") >= 0));
+    check("发了「Token 已保存」通知", r.notifies.some((n) => n.title.indexOf("已保存") >= 0));
     check("没有跑签到（抓取场景不签到）", !has(r.logs, "本次领取"));
     check("通知里带 Token 到期日", r.notifies.some((n) => /有效期至 \d{4}\//.test(n.body || "")));
     check("通知里带完整 Token（手机抓完复制给青龙用）",
@@ -261,7 +261,7 @@ const has = (logs, s) => logs.some((l) => l.indexOf(s) >= 0);
       },
     });
     check("仍然抓取（CAPON 已不再参与判断）", !!r.store.zeekr_val);
-    check("仍然发抓取通知", r.notifies.some((n) => n.title.indexOf("已自动保存") >= 0));
+    check("仍然发抓取通知", r.notifies.some((n) => n.title.indexOf("已保存") >= 0));
   }
 
   console.log("\n== I. 网络抖动：第一次请求失败应自动重试 ==");

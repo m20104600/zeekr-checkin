@@ -341,6 +341,7 @@ function zeekrTokenFromStore(raw) {
  *   NOTIFY     0 = 不发通知
  *   CAPSHOW    1(默认) = 抓到 Token 时在通知里显示完整 Token（方便复制到青龙）；
  *              0 = 只显示账号/有效期（Token 仍会存进客户端持久化存储）
+ *              —— **仅 QX / Loon / Stash 版实现**，Egern 版恒显示完整 Token
  *   VERBOSE    1 = 打印明细
  */
 function zeekrNormKey(k) {
@@ -929,7 +930,10 @@ async function zeekrMain(RT) {
   if (!cfg.token) {
     ctx.ok = false;
     title = "❌ 极氪签到失败" + (cfg.tag ? "（" + cfg.tag + "）" : "");
-    ctx.out("❌ 缺少 Token：请在客户端参数的 TOKEN/ZEEKR_TOKEN 里填 Bearer Token");
+    ctx.out(
+      RT.tokenHint ||
+        "❌ 缺少 Token：请在客户端参数的 TOKEN/ZEEKR_TOKEN 里填 Bearer Token"
+    );
     send();
     return { ok: false, lines: lines };
   }

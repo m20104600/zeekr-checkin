@@ -83,8 +83,8 @@ https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/configs/egern.yam
 > 抓到的 Token 只活在「持久化存储」里（键 `zeekr_val`），定时任务每次自动读 —— 放一个
 > 永远填不进去的输入框只会让人误会为什么"抓到了却没填上"。
 > 想把 Token 拿去别处用（青龙等）：**点一下抓取通知即可复制到剪贴板**。
-> 真要手动指定 Token：在 Profile 的模块引用处加 `env: { ZEEKR_TOKEN: "Bearer eyJ..." }`
-> （形态不合法的值会被忽略，自动回落到抓取到的那个）。
+> **Egern 版脚本不读任何手填的 Token**（`ZEEKR_TOKEN` 给了也一律忽略，日志里会写明）——
+> 唯一来源就是抓取到的那个，这样不会再有人问"我填了这一栏怎么没用"。
 
 **青龙没有 MITM，抓不了** —— 用手机抓一次，把通知正文最后那行
 `Bearer eyJ...` 复制过去，粘到环境变量 `ZEEKR_TOKEN`；
@@ -116,7 +116,7 @@ https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/configs/egern.yam
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
-| `TOKEN` | — | Bearer Token；不填则用抓取存的（青龙必须填/复制） |
+| `TOKEN` | — | Bearer Token；不填则用抓取存的（青龙必须填/复制）。**Egern 版忽略此参数**，只用抓取到的那份 |
 | `MODE` | `all` | `all`=签到+步数+任务+领取；`sign`=只签到做任务；`claim`=只领取 |
 | `TAG` | — | 场次标签，只影响通知标题，如 `凌晨场` |
 | `STEPS` | 随机 8000~12000 | 上报步数；`off` 跳过上报 |

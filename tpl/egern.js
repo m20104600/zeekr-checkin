@@ -10,13 +10,15 @@
  *       script_url: "https://raw.githubusercontent.com/你的用户名/仓库名/main/zeekr.egern.js"
  *       timeout: 600            # 默认只有 10 秒，务必放大（领取轮询最长约 10 分钟）
  *       env:
- *         ZEEKR_TOKEN: "Bearer 粘贴你的Token"
  *         ZEEKR_MODE: "all"     # all | sign | claim
  *         ZEEKR_TAG: "凌晨场"
  *         # ZEEKR_POLL: "1"     # 1 = 脚本内部轮询到领完（配合 timeout: 600）
  *         # ZEEKR_STEPS: "10000"
  *
  * ── 说明 ──────────────────────────────────────────────────────────────
+ * **Token 只有一个来源：打开极氪 App 时自动抓取**（存进客户端持久化存储，键 zeekr_val）。
+ * 本脚本**不读** ZEEKR_TOKEN 环境变量（模块设置页里也没有 Token 栏）—— 别人给了也会被忽略，
+ * 这样不会出现"填了却不生效"的误会（2026-09-20 起）。
  * Egern 的 schedule 脚本默认超时 10 秒、最大 600 秒。默认 ZEEKR_POLL=0 时脚本
  * 只查一轮（约 10~20 秒），请把 timeout 设到 120 以上留点余量；
  * 想一次跑完（等奖励入账后领光）就把 ZEEKR_POLL 设为 1，timeout 设 600。
@@ -92,17 +94,6 @@ export default async function (ctx) {
       return true;
     }
     return def;
-  }
-  function hasTokenInEnv() {
-    for (var k in env) {
-      if (!Object.prototype.hasOwnProperty.call(env, k)) continue;
-      if (zeekrNormKey(k) !== "TOKEN") continue;
-      // 只认形态合法的 Token：占位符（${TOKEN} / <粘贴你的Token>）和垃圾值都当"没配"，
-      // 这样能回落到持久化存储里抓到的那个（模块设置页里已经没有 Token 栏了，
-      // 手填只可能来自 Profile 的模块引用处 —— 写错了也不该把签到带崩）
-      if (zeekrCleanToken(env[k])) return true;
-    }
-    return false;
   }
   // ── 取头：键名一律小写归一化后再匹配（对齐参考脚本 wf021325/qx 的 ObjectKeys2LowerCase）──
   //   Egern 交过来的 headers 可能是 Headers 对象（有 get / forEach），也可能是普通对象；
@@ -272,16 +263,31 @@ export default async function (ctx) {
     return;
   }
 
-  if (!hasTokenInEnv()) {
-    var storedEg = zeekrTokenFromStore(storeRead());
-    if (storedEg) {
-      env.ZEEKR_TOKEN = storedEg;
-      log("[极氪签到] 🔐 使用持久化存储里的 Token（自动抓取）");
-    } else
-      log(
-        "[极氪签到] ⚠️ 既没有配置 Token，也没有抓取过；请先按 README 配好抓取规则（打开极氪 App 点一下即可）"
-      );
+  // Token 只有一个来源：抓取后存在持久化存储里的那份（模块设置页里已经没有 Token 栏了）。
+  // env 里若被谁塞了 ZEEKR_TOKEN（例如 Profile 的模块引用处），**一律忽略**并记一句日志 ——
+  // 免得"填了却不生效"被当成 bug（2026-09-20 用户要求：别再让环境变量误导使用者）。
+  var envTokenEg = "";
+  for (var kEg in env) {
+    if (!Object.prototype.hasOwnProperty.call(env, kEg)) continue;
+    if (zeekrNormKey(kEg) !== "TOKEN") continue;
+    if (String(env[kEg] == null ? "" : env[kEg]).trim()) envTokenEg = String(env[kEg]);
+    delete env[kEg]; // core 是从 env 读 TOKEN 的，这里直接摘掉，确保抓到的那个说了算
   }
+  var storedEg = zeekrTokenFromStore(storeRead());
+  if (storedEg) {
+    env.ZEEKR_TOKEN = storedEg;
+    log("[极氪签到] 🔐 使用抓取到的 Token（持久化存储 zeekr_val）");
+  } else {
+    log(
+      "[极氪签到] ⚠️ 还没抓到过 Token：把模块里的「抓取 Token」开着，打开一次极氪 App 即可（没有手填的地方）"
+    );
+  }
+  if (envTokenEg)
+    log(
+      "[极氪签到] ⚠️ env 里带了 TOKEN（长度 " +
+        envTokenEg.length +
+        "），本脚本只认抓取到的那份，已忽略"
+    );
 
   function http(o) {
     var opts = { timeout: o.timeoutMs || 20000 };
@@ -320,6 +326,9 @@ export default async function (ctx) {
 
   var RT = {
     platform: "Egern",
+    // 缺 Token 时的提示语：Egern 版不给手填（模块设置页里没有 Token 栏），只能靠抓取
+    tokenHint:
+      "❌ 缺少 Token：把模块里的「抓取 Token」开着，打开一次极氪 App 就会自动抓取并存起来（Egern 版没有手填 Token 的地方）",
     env: env,
     http: http,
     notify: notify,

@@ -82,8 +82,9 @@ console.log = function () {
 
 const logs = [];
 const notifies = [];
-const store = {};
-const ctx = makeCtx({ ZEEKR_MODE: "claim", ZEEKR_APPVER: "4.9.33", ZEEKR_TAG: "Egern场", [TKEY]: bearer }, store, logs, notifies);
+
+const store = { zeekr_val: JSON.stringify({ authorization: bearer }) };  // Egern 只看抓取到的那份
+const ctx = makeCtx({ ZEEKR_MODE: "claim", ZEEKR_APPVER: "4.9.33", ZEEKR_TAG: "Egern场" }, store, logs, notifies);
 
 console.log("== A. Egern schedule 定时任务（claim 模式，真实请求）==");
 sink = logs;
@@ -197,7 +198,7 @@ const store3 = { zeekr_val: JSON.stringify({ authorization: bearer }) };
 sink = logs3;
 await run(makeCtx({ ZEEKR_MODE: "claim", ZEEKR_APPVER: "4.9.33" }, store3, logs3, []));
 sink = null;
-check("提示使用存储里的 Token", logs3.some((l) => l.indexOf("使用持久化存储里的 Token") >= 0));
+check("提示使用抓取到的 Token（存储）", logs3.some((l) => l.indexOf("使用抓取到的 Token") >= 0), logs3.slice(0, 2).join(" | "));
 check("成功进入领取阶段", logs3.some((l) => l.indexOf("本次领取") >= 0));
 
 console.log("\n== D. 「抓取 Token」开关 + 通知门控 ==");
@@ -253,17 +254,28 @@ check(
   JSON.stringify(notifiesD4[0] && notifiesD4[0].title)
 );
 
-// D5 模块设置里已经没有 Token 栏了；万一 env 里塞了占位符/垃圾值 → 忽略它，回落到存储里抓到的
+// D5 Egern 版不读 env 里的 Token：给了（哪怕是合法 JWT）也忽略，只用抓取到的那份
 const logsD5 = [];
 const storeD5 = { zeekr_val: JSON.stringify({ authorization: bearer }) };
-const ctxD5 = makeCtx({ ZEEKR_MODE: "claim", [TKEY]: "${TOKEN}" }, storeD5, logsD5, []);
+const ctxD5 = makeCtx({ ZEEKR_MODE: "claim", [TKEY]: bearer }, storeD5, logsD5, []);
 sink = logsD5;
 await run(ctxD5);
 sink = null;
+check("env 里的 Token 被忽略（日志写明）", logsD5.some((l) => l.indexOf("已忽略") >= 0), logsD5.slice(0, 3).join(" | "));
+check("仍然用抓取到的那份", logsD5.some((l) => l.indexOf("使用抓取到的 Token") >= 0), logsD5.slice(0, 3).join(" | "));
+
+// D6 从没抓取过 + env 里塞了 Token → 提示去抓取，而不是让人去填 Token（别再误导）
+const logsD6 = [];
+const notifiesD6 = [];
+const storeD6 = {};
+const ctxD6 = makeCtx({ ZEEKR_MODE: "claim", [TKEY]: bearer }, storeD6, logsD6, notifiesD6);
+sink = logsD6;
+await run(ctxD6);
+sink = null;
 check(
-  "env 里是占位符 → 忽略并回落存储里的 Token",
-  logsD5.some((l) => l.indexOf("使用持久化存储里的 Token") >= 0),
-  logsD5.slice(0, 2).join(" | ")
+  "没抓取过时提示去「抓取 Token」抓一次（不提手填）",
+  logsD6.some((l) => l.indexOf("没有手填 Token 的地方") >= 0),
+  logsD6.slice(0, 3).join(" | ")
 );
 
 console.log("\n结果: " + pass + " 通过, " + fail + " 失败");

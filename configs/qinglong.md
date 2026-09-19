@@ -1,6 +1,7 @@
 # ══════════════════════════════════════════════════════════════════════
 # 极氪签到 · 青龙 / 任意 Node.js 配置片段
-# 脚本地址：<你的脚本地址前缀>/zeekr.js（Egern 用 zeekr.egern.js）
+# 脚本地址：https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js（Egern 用 zeekr.egern.js）
+#          国内更快的镜像（jsDelivr）：https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist
 #
 # 两种用法（任选）：
 #   A. 手机抓 Token（推荐）：青龙没有 MITM 抓不了，用手机 QX/Loon/Stash/Egern 抓一次，

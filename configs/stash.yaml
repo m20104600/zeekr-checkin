@@ -1,6 +1,7 @@
 # ══════════════════════════════════════════════════════════════════════
 # 极氪签到 · Stash 配置片段
-# 脚本地址：<你的脚本地址前缀>/zeekr.js（Egern 用 zeekr.egern.js）
+# 脚本地址：https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js（Egern 用 zeekr.egern.js）
+#          国内更快的镜像（jsDelivr）：https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist
 #
 # 两种用法（任选）：
 #   A. 自动抓 Token（推荐）：用下面的抓取规则，打开极氪 App 点一下，
@@ -60,7 +61,7 @@ cron:
 
 script-providers:
   zeekr:
-    url: <你的脚本地址前缀>/zeekr.js
+    url: https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js
     interval: 86400
 
 # 说明：

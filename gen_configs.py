@@ -14,11 +14,13 @@ OUT.mkdir(exist_ok=True)
 K = "ZEEKR_" + "TOKEN"          # 环境变量/参数名
 BEARER = "Bea" + "rer"
 PH = "<把这里换成你的" + BEARER + " Token>"   # 占位符
-REPO = "<你的脚本地址前缀>"                    # 例如 https://raw.githubusercontent.com/m19999999/zeekr-scripts/main
+REPO = "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist"
+REPO_ALT = "https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist"   # 国内更快的镜像
 
 HEADER = """# ══════════════════════════════════════════════════════════════════════
 # 极氪签到 · {client} 配置片段
 # 脚本地址：{repo}/zeekr.js（Egern 用 zeekr.egern.js）
+#          国内更快的镜像（jsDelivr）：https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist
 #
 # 两种用法（任选）：
 #   A. 自动抓 Token（推荐）：用下面的抓取规则，打开极氪 App 点一下，

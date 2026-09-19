@@ -1,6 +1,7 @@
 # ══════════════════════════════════════════════════════════════════════
 # 极氪签到 · Egern 配置片段
-# 脚本地址：<你的脚本地址前缀>/zeekr.js（Egern 用 zeekr.egern.js）
+# 脚本地址：https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js（Egern 用 zeekr.egern.js）
+#          国内更快的镜像（jsDelivr）：https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist
 #
 # 两种用法（任选）：
 #   A. 自动抓 Token（推荐）：用下面的抓取规则，打开极氪 App 点一下，
@@ -25,14 +26,14 @@ scriptings:
       name: "极氪抓Token"
       # 也可放宽为 "^https://api-gw-toc\\.zeekrlife\\.com/"
       match: "^https://api-gw-toc\\.zeekrlife\\.com/zeekrlife-app-user/v\d/user/info/query"
-      script_url: "<你的脚本地址前缀>/zeekr.egern.js"
+      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
       timeout: 20
 
   # 凌晨场
   - schedule:
       name: "极氪签到·凌晨场"
       cron: "1 0 * * *"
-      script_url: "<你的脚本地址前缀>/zeekr.egern.js"
+      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
       timeout: 120
       env:
         ZEEKR_TOKEN: "<把这里换成你的Bearer Token>"
@@ -41,7 +42,7 @@ scriptings:
   - schedule:
       name: "极氪签到·凌晨补领"
       cron: "10 0 * * *"
-      script_url: "<你的脚本地址前缀>/zeekr.egern.js"
+      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
       timeout: 120
       env:
         ZEEKR_MODE: "claim"
@@ -51,7 +52,7 @@ scriptings:
   - schedule:
       name: "极氪签到·早间场"
       cron: "10 8 * * *"
-      script_url: "<你的脚本地址前缀>/zeekr.egern.js"
+      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
       timeout: 120
       env:
         ZEEKR_TOKEN: "<把这里换成你的Bearer Token>"
@@ -60,7 +61,7 @@ scriptings:
   - schedule:
       name: "极氪签到·早间补领"
       cron: "20 8 * * *"
-      script_url: "<你的脚本地址前缀>/zeekr.egern.js"
+      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
       timeout: 120
       env:
         ZEEKR_MODE: "claim"
@@ -70,7 +71,7 @@ scriptings:
   - schedule:
       name: "极氪签到·晚间场"
       cron: "30 21 * * *"
-      script_url: "<你的脚本地址前缀>/zeekr.egern.js"
+      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
       timeout: 120
       env:
         ZEEKR_TOKEN: "<把这里换成你的Bearer Token>"
@@ -79,7 +80,7 @@ scriptings:
   - schedule:
       name: "极氪签到·晚间补领"
       cron: "40 21 * * *"
-      script_url: "<你的脚本地址前缀>/zeekr.egern.js"
+      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
       timeout: 120
       env:
         ZEEKR_MODE: "claim"

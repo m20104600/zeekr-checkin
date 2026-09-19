@@ -93,6 +93,45 @@ for fn, pats in regexes.items():
         u = TARGET_ROOT if is_broad else TARGET_URL
         check(f"{fn} 正则可编译且能匹配目标 URL", bool(rx.search(u)), p[:70])
 
+print("\n== 2b. 结构校验（Loon 插件行 / Egern 模块条目）==")
+loon_txt = read("loon.plugin")
+cron_lines = re.findall(r"^cron (.+)$", loon_txt, re.M)
+check("loon.plugin 6 条 cron 都是新语法 then script(...)",
+      len(cron_lines) == 6 and all('then script("' in c for c in cron_lines), len(cron_lines))
+check("loon.plugin 的 cron 都带 timeout",
+      all("timeout=" in c for c in cron_lines))
+check("loon.plugin 的抓取行用 http-request if ... then script(...)",
+      re.search(r'^http-request if \$\{url\} ~= /.+/ then script\("', loon_txt, re.M) is not None)
+check("loon.plugin 的 argument 用了插件参数 ${TOKEN}",
+      "${TOKEN}" in loon_txt)
+
+try:
+    import yaml as _yaml
+
+    eg_doc = _yaml.safe_load(read("egern.yaml"))
+    kinds = []
+    bad_entry = []
+    for item in eg_doc["scriptings"]:
+        if not isinstance(item, dict) or len(item) != 1:
+            bad_entry.append(item)
+            continue
+        kinds.append(list(item.keys())[0])
+        body = list(item.values())[0]
+        if list(item.keys())[0] == "schedule":
+            if not all(k in body for k in ("name", "cron", "script_url", "timeout")):
+                bad_entry.append(body)
+            for v in (body.get("env") or {}).values():
+                if not isinstance(v, str):
+                    bad_entry.append(body)
+    check("egern.yaml 每个 scriptings 条目都是单键映射",
+          not bad_entry and len(kinds) == 7, f"kinds={kinds} bad={len(bad_entry)}")
+    check("egern.yaml 含 1 条 http_request + 6 条 schedule",
+          kinds.count("http_request") == 1 and kinds.count("schedule") == 6, kinds)
+    check("egern.yaml 的 schedule 都带 env（MODE/TAG）",
+          all("env" in list(i.values())[0] for i in eg_doc["scriptings"] if "schedule" in i))
+except ImportError:
+    print("  ⚠️ 没装 PyYAML，跳过结构校验")
+
 print("\n== 3. 不许有双反斜杠残留（事故根因）＝=")
 for fn in ("qx.conf", "loon.plugin", "loon-snippet.conf", "stash.yaml", "egern.yaml"):
     t = read(fn)

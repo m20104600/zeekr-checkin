@@ -68,33 +68,85 @@ export default async function (ctx) {
     }
     return false;
   }
-  function headerGet(hdrs, name) {
+  // ── 取头：键名一律小写归一化后再匹配（对齐参考脚本 wf021325/qx 的 ObjectKeys2LowerCase）──
+  //   Egern 交过来的 headers 可能是 Headers 对象（有 get / forEach），也可能是普通对象；
+  //   普通对象的键名**保留原始大小写**（实测出现过 `Authorization`）。早期只试小写键，
+  //   于是恒取不到值 —— 2026-09-20 实测日志：「这条请求没有 Authorization 头，未抓取」。
+  function headerAll(hdrs) {
+    var out = {};
     try {
-      if (hdrs && typeof hdrs.get === "function") return hdrs.get(name) || "";
-      if (hdrs) return hdrs[name] || hdrs[name.toLowerCase()] || "";
+      if (!hdrs) return out;
+      if (typeof hdrs.forEach === "function") {
+        hdrs.forEach(function (v, k) {
+          out[String(k).toLowerCase()] = v;
+        });
+        return out;
+      }
+      for (var k in hdrs) {
+        if (Object.prototype.hasOwnProperty.call(hdrs, k)) out[String(k).toLowerCase()] = hdrs[k];
+      }
+    } catch (e) {}
+    return out;
+  }
+  function headerGet(hdrs, name) {
+    var ln = String(name).toLowerCase();
+    try {
+      var m = headerAll(hdrs);
+      if (m[ln] !== undefined && m[ln] !== null && String(m[ln]) !== "") return m[ln];
+      if (hdrs && typeof hdrs.get === "function") {
+        var v = hdrs.get(ln) || hdrs.get(name);
+        if (v) return v;
+      }
     } catch (e) {}
     return "";
   }
+  function headerNames(hdrs) {
+    var ks = [];
+    try {
+      var m = headerAll(hdrs);
+      for (var k in m) {
+        if (Object.prototype.hasOwnProperty.call(m, k)) ks.push(k);
+      }
+    } catch (e) {}
+    return ks;
+  }
 
-  // HTTP 脚本上下文（Egern 把请求交给我们时带 ctx.request）：抓 Token 后立刻返回
-  if (ctx.request && ctx.request.headers) {
-    var auth = String(headerGet(ctx.request.headers, "authorization") || "");
+  // HTTP 脚本上下文（Egern 把请求交给我们时带 ctx.request）：**只做「抓 Token」一件事**，
+  // 做完立刻 return —— 绝不落到下面的签到流程（否则定时任务会在每个请求里被重跑一遍）。
+  var reqEg = ctx.request || null;
+  if (reqEg && reqEg.headers) {
+    var rawAuth = String(headerGet(reqEg.headers, "authorization") || "");
+    var auth = zeekrCleanToken(rawAuth);
+    var methodEg = String(reqEg.method || "").toUpperCase();
     var dbg = String(env.ZEEKR_CAPDEBUG || env.CAPDEBUG || "").toLowerCase();
     var capDebug = !(dbg === "" || dbg === "0" || dbg === "false" || dbg === "off" || dbg === "no");
     if (capDebug) {
-      var uu = String((ctx.request && ctx.request.url) || "");
+      var uu = String(reqEg.url || "");
+      var hns = headerNames(reqEg.headers);
       try {
         ctx.notify({
           title: "🔍 极氪抓取调试（命中一条请求）",
           body:
-            ((ctx.request && ctx.request.method) || "?") +
+            (reqEg.method || "?") +
             " " +
             uu.replace(/^https?:\/\/[^/]+/, "") +
             "\n" +
-            (auth ? "带 Authorization ✓" : "没有 Authorization ✗"),
+            (auth ? "带 Authorization ✓" : rawAuth ? "取到 authorization 但形态不认识 ✗" : "没有 Authorization ✗") +
+            "\n收到的头 " +
+            hns.length +
+            " 个: " +
+            hns.slice(0, 20).join(", ") +
+            (methodEg === "OPTIONS" ? "\n（OPTIONS 预检请求，正常不带 Token）" : ""),
         });
       } catch (e) {}
-      log("[极氪签到] 🔍 抓取调试: " + uu + " auth=" + (auth ? "有" : "无"));
+      log(
+        "[极氪签到] 🔍 抓取调试: " +
+          uu +
+          " auth=" +
+          (auth ? "有" : "无") +
+          " headers=" +
+          hns.join(",")
+      );
     }
     if (auth && /^Bearer\s/i.test(auth)) {
       var prevEg = zeekrTokenFromStore(storeRead());
@@ -142,9 +194,26 @@ export default async function (ctx) {
           ctx.notify({ title: "✅ 极氪 Token 已自动保存", body: bodyEg });
         } catch (e) {}
       }
+    } else if (methodEg === "OPTIONS") {
+      log("[极氪签到] ⏭️ OPTIONS 预检请求，不带 Token，跳过（参考脚本同样跳过）");
+    } else if (rawAuth) {
+      log(
+        "[极氪签到] ⚠️ 取到 authorization 但不是可用的 JWT（长度 " +
+          rawAuth.length +
+          "，Bearer 前缀=" +
+          (/^Bearer\s/i.test(rawAuth) ? "有" : "无") +
+          "），未保存"
+      );
     } else {
-      log("[极氪签到] ⚠️ 这条请求没有 Authorization 头，未抓取");
+      log("[极氪签到] 这条请求没有 Authorization 头，未抓取（等带 Token 的请求即可）");
     }
+    return;
+  }
+
+  // HTTP 上下文但拿不到请求头（例如响应阶段不提供 ctx.request.headers）：
+  // 只记一句日志就结束，**绝不**往下跑签到流程
+  if (reqEg || ctx.response) {
+    log("[极氪签到] HTTP 上下文里没有可用的请求头，本次不抓取（也不会跑签到）");
     return;
   }
 

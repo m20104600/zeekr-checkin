@@ -141,24 +141,24 @@ def main():
                 fail(f"{p.name} → {m.group(1)} 不存在")
 
     print("\n== 3. 文档里不应该有真实 Token 片段 ==")
-    probe = subprocess.run(
-        ["bash", "-c",
-         "python3 - <<'PY'\n"
-         "import pathlib,re,os\n"
-         "p=pathlib.Path.home()/'.config/zeekr-checkin/env'\n"
-         "if not p.exists(): print('SKIP'); raise SystemExit\n"
-         "t=p.read_text(errors='ignore')\n"
-         "m=re.search(r\"[A-Za-z0-9_-]{23,}\\\\.[A-Za-z0-9_-]{23,}\",t)\n"
-         "print(m.group(0)[:24] if m else 'SKIP')\n"
-         "PY"],
-        capture_output=True, text=True)
-    frag = probe.stdout.strip()
-    if frag in ("", "SKIP"):
-        print("  ⏭️  跳过（没读到本机 env）")
+    envfile = pathlib.Path.home() / ".config/zeekr-checkin/env"
+    frag = ""
+    if envfile.exists():
+        raw = envfile.read_text(errors="ignore")
+        for line in raw.splitlines():
+            if "=" in line and "TOKEN" in line.split("=")[0]:
+                val = line.split("=", 1)[1].strip().strip("'\"")
+                if len(val) > 60:
+                    frag = val[40:80]  # 取中段，避免首尾常见前缀
+                    break
+    if not frag:
+        print("  ⏭️  跳过（没读到本机 env 里的 Token）")
     else:
         hits = []
         for p in sorted(root.rglob("*")):
-            if p.is_file() and ".git" not in p.parts and p.suffix in (".md", ".conf", ".yaml", ".plugin", ".js", ".py"):
+            if p.is_file() and ".git" not in p.parts and p.suffix in (
+                ".md", ".conf", ".yaml", ".plugin", ".js", ".py", ".txt", ".json"
+            ):
                 if frag.encode() in p.read_bytes():
                     hits.append(str(p.relative_to(root)))
         if hits:

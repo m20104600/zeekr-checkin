@@ -56,5 +56,9 @@ cron "40 21 * * *" then script("https://raw.githubusercontent.com/m20104600/zeek
 # * 想改成一次跑完（POLL=1，约 3~5 分钟）就把 timeout 提到 600。
 # * TOKEN 参数留空时会用「自动抓取」存下来的 Token；想手填就填 Bearer 开头的整串。
 
+# ③ 手动自检：Loon → 脚本 → 选中「极氪Token自检」手动运行一次；
+#    能跑到「🏁 本次领取」说明抓存的 Token 有效（读不到会明确提示缺少 Token）
+generic then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", "MODE=claim&TAG=自检") with tag="极氪Token自检", timeout=120
+
 [Mitm]
 hostname = api-gw-toc.zeekrlife.com

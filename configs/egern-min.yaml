@@ -6,6 +6,8 @@
 #         · 没有任何模块参数（env_schema）—— 用来验证「参数」是不是元凶
 #         · 只有一条 http_request 规则 + mitm，没有定时任务、没有自检脚本
 #         · 打开 CAPDEBUG，**每命中一条请求都会弹通知**（所以一定会看到东西）
+#         · 脚本地址写死了 commit（不是 main）—— 这样 Egern 一定去重新下载，
+#           不会命中它 24 小时的脚本缓存（这次排查的坑就在缓存上）
 #
 # 用法：
 #   1. Egern → 模块 → 先把「极氪签到」那个模块**关掉（禁用）**，避免干扰
@@ -40,7 +42,7 @@ scriptings:
   - http_request:
       name: "极氪抓Token·最小测试"
       match: '^https://api-gw-toc\.zeekrlife\.com/'
-      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
+      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/b1e53dff8b439fe9f1ab3ad6a41e48c806dab798/dist/zeekr.egern.js"
       update_interval: 600
       timeout: 20
       env:
@@ -51,7 +53,7 @@ scriptings:
   - http_response:
       name: "极氪抓Token·响应兜底"
       match: '^https://api-gw-toc\.zeekrlife\.com/'
-      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
+      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/b1e53dff8b439fe9f1ab3ad6a41e48c806dab798/dist/zeekr.egern.js"
       update_interval: 600
       timeout: 20
       env:

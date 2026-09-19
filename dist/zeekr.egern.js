@@ -1120,7 +1120,11 @@ export default async function (ctx) {
   function hasTokenInEnv() {
     for (var k in env) {
       if (!Object.prototype.hasOwnProperty.call(env, k)) continue;
-      if (zeekrNormKey(k) === "TOKEN" && String(env[k]).trim()) return true;
+      if (zeekrNormKey(k) !== "TOKEN") continue;
+      // 只认形态合法的 Token：占位符（${TOKEN} / <粘贴你的Token>）和垃圾值都当"没配"，
+      // 这样能回落到持久化存储里抓到的那个（模块设置页里已经没有 Token 栏了，
+      // 手填只可能来自 Profile 的模块引用处 —— 写错了也不该把签到带崩）
+      if (zeekrCleanToken(env[k])) return true;
     }
     return false;
   }

@@ -253,5 +253,18 @@ check(
   JSON.stringify(notifiesD4[0] && notifiesD4[0].title)
 );
 
+// D5 模块设置里已经没有 Token 栏了；万一 env 里塞了占位符/垃圾值 → 忽略它，回落到存储里抓到的
+const logsD5 = [];
+const storeD5 = { zeekr_val: JSON.stringify({ authorization: bearer }) };
+const ctxD5 = makeCtx({ ZEEKR_MODE: "claim", [TKEY]: "${TOKEN}" }, storeD5, logsD5, []);
+sink = logsD5;
+await run(ctxD5);
+sink = null;
+check(
+  "env 里是占位符 → 忽略并回落存储里的 Token",
+  logsD5.some((l) => l.indexOf("使用持久化存储里的 Token") >= 0),
+  logsD5.slice(0, 2).join(" | ")
+);
+
 console.log("\n结果: " + pass + " 通过, " + fail + " 失败");
 process.exit(fail ? 1 : 0);

@@ -4,7 +4,7 @@
  * 依赖注入：RT = { platform, env, http(), notify(), log(), finish() }
  * ========================================================================== */
 
-var ZEEKR_PORT_VERSION = "2.0.0";
+var ZEEKR_PORT_VERSION = "2.1.0";
 /* 签名密钥由 build.py 从本地 checkin.mjs 抽取后注入（避免密钥出现在源码/终端里被安全屏蔽器打码） */
 var ZEEKR_SECRET = "__ZEEKR_SECRET__";
 var ZEEKR_BASE = "https://api-gw-toc.zeekrlife.com";

@@ -200,5 +200,58 @@ sink = null;
 check("提示使用存储里的 Token", logs3.some((l) => l.indexOf("使用持久化存储里的 Token") >= 0));
 check("成功进入领取阶段", logs3.some((l) => l.indexOf("本次领取") >= 0));
 
+console.log("\n== D. 「抓取 Token」开关 + 通知门控 ==");
+// D1 开关 = 「关」→ 不抓取、不写存储、不弹任何通知（连「抓取调试」的也不弹）
+const logsD1 = [];
+const notifiesD1 = [];
+const storeD1 = {};
+const ctxD1 = makeCtx({ ZEEKR_CAPTURE: "false", ZEEKR_CAPDEBUG: "true" }, storeD1, logsD1, notifiesD1);
+ctxD1.request = { method: "POST", url: "https://api-gw-toc.zeekrlife.com/zeekrlife-mp-val/v1/x", headers: { Authorization: bearer } };
+sink = logsD1;
+await run(ctxD1);
+sink = null;
+check("开关=关：不写存储", !storeD1.zeekr_val, JSON.stringify(storeD1));
+check("开关=关：不弹任何通知（含调试）", notifiesD1.length === 0, JSON.stringify(notifiesD1));
+check("开关=关：日志说明已跳过", logsD1.some((l) => l.indexOf("开关=关") >= 0), logsD1.slice(0, 2).join(" | "));
+
+// D2 开关 = 「开」（显式 true）+ 大写键名 → 抓取成功，通知里标明开关状态 / 脚本版本 / 可点击复制
+const logsD2 = [];
+const notifiesD2 = [];
+const storeD2 = {};
+const ctxD2 = makeCtx({ ZEEKR_CAPTURE: "true" }, storeD2, logsD2, notifiesD2);
+ctxD2.request = { method: "POST", url: "https://api-gw-toc.zeekrlife.com/zeekrlife-mp-val/v1/x", headers: { Authorization: bearer } };
+sink = logsD2;
+await run(ctxD2);
+sink = null;
+check("开关=开：抓到并写入存储", !!storeD2.zeekr_val && JSON.parse(storeD2.zeekr_val).authorization === bearer, JSON.stringify(storeD2));
+const nD2 = notifiesD2[0] || {};
+check("通知里标明「抓取开关：开」+ 脚本版本", String(nD2.body || "").indexOf("抓取开关：开") >= 0 && String(nD2.body || "").indexOf("脚本 v2.1.0") >= 0, String(nD2.body || "").slice(0, 120));
+check("通知带「点击复制 Token」action", !!nD2.action && nD2.action.type === "clipboard" && nD2.action.text === bearer, JSON.stringify(nD2.action));
+
+// D3 门控：同一 Token + 刚弹过 → 静默；11 分钟前弹过 → 再弹一条（标题标「未变化」）
+const logsD3 = [];
+const notifiesD3 = [];
+const storeD3 = { zeekr_val: JSON.stringify({ authorization: bearer }), zeekr_cap_last: String(Date.now()) };
+const ctxD3 = makeCtx({}, storeD3, logsD3, notifiesD3);
+ctxD3.request = { method: "POST", url: "https://api-gw-toc.zeekrlife.com/zeekrlife-mp-val/v1/x", headers: { authorization: bearer } };
+sink = logsD3;
+await run(ctxD3);
+sink = null;
+check("同一 Token + 刚弹过 → 不再弹", notifiesD3.length === 0, JSON.stringify(notifiesD3));
+
+const logsD4 = [];
+const notifiesD4 = [];
+const storeD4 = { zeekr_val: JSON.stringify({ authorization: bearer }), zeekr_cap_last: String(Date.now() - 11 * 60 * 1000) };
+const ctxD4 = makeCtx({}, storeD4, logsD4, notifiesD4);
+ctxD4.request = { method: "POST", url: "https://api-gw-toc.zeekrlife.com/zeekrlife-mp-val/v1/x", headers: { authorization: bearer } };
+sink = logsD4;
+await run(ctxD4);
+sink = null;
+check(
+  "11 分钟后再开 App → 又弹一条（标题「未变化」）",
+  notifiesD4.length === 1 && String(notifiesD4[0].title || "").indexOf("未变化") >= 0,
+  JSON.stringify(notifiesD4[0] && notifiesD4[0].title)
+);
+
 console.log("\n结果: " + pass + " 通过, " + fail + " 失败");
 process.exit(fail ? 1 : 0);

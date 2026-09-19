@@ -72,6 +72,18 @@ https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/configs/egern.yam
 配上片段里的抓取规则 → 打开极氪 App 随便点一下 → 收到
 「✅ 极氪 Token 已自动保存」通知，Token 已存进客户端，定时任务无需再填。
 
+**Egern 的「抓取 Token」开关**（模块设置页里，默认开）：
+
+- **开** = 打开极氪 App 就抓取并存进持久化存储；Token 变了立刻弹一条通知，
+  没变则 **10 分钟内最多一条**（等于每次开 App 有一条确认，又不会刷屏）
+- **关** = 完全不抓取、不写存储、不弹任何通知（连「抓取调试」也不弹）
+- 改完开关要**把 Egern 的 VPN 开关断开重连一次**，模块参数才会重新加载
+
+> 想让抓取到的 Token 出现在模块设置的「极氪 Token」栏里？**脚本没有权限写那一栏**
+> （iOS 不允许脚本回写模块设置页）。但通知本身支持**点击即复制**：点一下抓取通知，
+> Token 就进了剪贴板，粘贴到那一栏即可。日常其实用不到那一栏 —— 定时任务是从
+> 持久化存储（键 `zeekr_val`）读 Token 的。
+
 **青龙没有 MITM，抓不了** —— 用手机抓一次，把通知正文最后那行
 `Bearer eyJ...` 复制过去，粘到环境变量 `ZEEKR_TOKEN`；
 或者把整段 JSON 粘给 `zeekr_val` / `ZEEKR_VAL`（与常见极氪脚本格式互通，脚本会自动认）。
@@ -161,7 +173,7 @@ python3 gen_configs.py  # 重新生成 configs/（一般不用动）
 ```bash
 node tests/unit.js            # 35 项：纯 JS SHA1/base64 与 Node 原生逐字节比对、JWT 解析、参数解析、Token 清洗
 node tests/e2e.js             # 36 项：模拟 Loon/Stash/QX 运行时，真打极氪接口（claim 幂等）
-node tests/e2e-egern.mjs      # 10 项：模拟 Egern ctx（schedule + http_request 抓取）
+node tests/e2e-egern.mjs      # 24 项：模拟 Egern ctx（schedule + 抓取 + 取头兼容 + 「抓取 Token」开关与通知门控）
 python3 tests/e2e-qinglong.py # 22 项：真跑青龙脚本（多账号、zeekr_val、裸 JWT、无 fetch 的 https 兜底）
 ```
 
@@ -209,6 +221,19 @@ python3 tests/e2e-qinglong.py # 22 项：真跑青龙脚本（多账号、zeekr_
 ---
 
 ## 更新记录
+
+- **2026-09-19（v2.1.0）**：修 Egern 抓取 + 加「抓取 Token」开关 ——
+  ① **取头大小写**：Egern 递进来的 `ctx.request.headers` 是普通对象、键名保留原始大小写
+  （`Authorization`），旧代码只试小写键 → 恒取不到值（现象：日志写「这条请求没有
+  Authorization 头」）。现在键名一律小写归一化后再匹配（对齐参考脚本 wf021325/qx 的
+  `ObjectKeys2LowerCase` 写法），Headers 对象（`get`/`forEach`）与普通对象都认；
+  ② 跳过 `OPTIONS` 预检请求，裸 JWT（无 `Bearer ` 前缀）也自动补齐后保存；
+  ③ 模块设置新增 **「抓取 Token」开关**（默认开）：开 = 开 App 就抓并弹通知（Token 变了
+  立刻弹，没变则 10 分钟最多一条）；关 = 不抓、不存、不弹任何通知（含调试）；
+  ④ 抓取通知**点一下即把 Token 复制进剪贴板**（iOS 不允许脚本回写模块设置页，
+  想填那一栏就点通知再粘贴）；通知里也会标明开关状态与脚本版本；
+  ⑤ 补硬闸：HTTP 上下文里只抓 Token，绝不误跑签到流程。
+  回归测试见 `tests/e2e-egern.mjs`（B2 取头兼容 6 条 + D 开关门控 8 条）。
 
 - **2026-09-19**：修正配置文件的两个致命问题 ——
   ① Loon 配置改成**真正的插件**（`configs/loon.plugin`，首行 `#!name`，带 `[Argument]` 参数 UI），

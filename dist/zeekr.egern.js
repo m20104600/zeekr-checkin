@@ -35,7 +35,7 @@
  * 依赖注入：RT = { platform, env, http(), notify(), log(), finish() }
  * ========================================================================== */
 
-var ZEEKR_PORT_VERSION = "2.0.0";
+var ZEEKR_PORT_VERSION = "2.1.0";
 /* 签名密钥由 build.py 从本地 checkin.mjs 抽取后注入（避免密钥出现在源码/终端里被安全屏蔽器打码） */
 var ZEEKR_SECRET = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCz09z6e9WOcNq+nUMX8Vq1Xe2EmJxuR3XbturefioF)E(Fl";
 var ZEEKR_BASE = "https://api-gw-toc.zeekrlife.com";
@@ -1070,20 +1070,52 @@ export default async function (ctx) {
   var ZEEKR_STORE_KEY = "zeekr_val";
 
   function storeRead() {
+    return storeGet(ZEEKR_STORE_KEY);
+  }
+  function storeWrite(val) {
+    return storeSet(ZEEKR_STORE_KEY, val);
+  }
+  function storeGet(k) {
     try {
-      if (ctx.storage && typeof ctx.storage.get === "function")
-        return ctx.storage.get(ZEEKR_STORE_KEY);
+      if (ctx.storage && typeof ctx.storage.get === "function") {
+        var v = ctx.storage.get(k);
+        return v == null ? null : v;
+      }
     } catch (e) {}
     return null;
   }
-  function storeWrite(val) {
+  function storeSet(k, v) {
     try {
       if (ctx.storage && typeof ctx.storage.set === "function") {
-        ctx.storage.set(ZEEKR_STORE_KEY, val);
+        ctx.storage.set(k, v);
         return true;
       }
     } catch (e) {}
     return false;
+  }
+
+  /**
+   * 读一个布尔开关（键名大小写不敏感、ZEEKR_ 前缀可有可无）：
+   *   - 真布尔（有些运行环境传的是 boolean）与字符串都认
+   *   - 只有明确写成 0 / false / off / no 才算"关"
+   *   - 没配、空值、未替换的占位符（${X} / <x>）→ 用默认值
+   */
+  function envFlag(name, def) {
+    var want = zeekrNormKey(name);
+    for (var k in env) {
+      if (!Object.prototype.hasOwnProperty.call(env, k)) continue;
+      if (zeekrNormKey(k) !== want) continue;
+      var v = env[k];
+      if (v === true) return true;
+      if (v === false) return false;
+      var t = String(v == null ? "" : v)
+        .replace(/^[\s"']+|[\s"']+$/g, "")
+        .toLowerCase();
+      if (t === "" || t.charAt(0) === "$" || t.charAt(0) === "<") return def;
+      if (t === "0" || t === "false" || t === "off" || t === "no") return false;
+      return true;
+    }
+    return def;
   }
   function hasTokenInEnv() {
     for (var k in env) {
@@ -1139,11 +1171,15 @@ export default async function (ctx) {
   // 做完立刻 return —— 绝不落到下面的签到流程（否则定时任务会在每个请求里被重跑一遍）。
   var reqEg = ctx.request || null;
   if (reqEg && reqEg.headers) {
+    // 「抓取 Token」开关（模块设置页可编辑，默认开）：关 = 不抓取、不写存储、不弹任何通知（含调试）
+    if (!envFlag("CAPTURE", true)) {
+      log("[极氪签到] ⏸️「抓取 Token」开关=关：不抓取、不写存储、不通知");
+      return;
+    }
     var rawAuth = String(headerGet(reqEg.headers, "authorization") || "");
     var auth = zeekrCleanToken(rawAuth);
     var methodEg = String(reqEg.method || "").toUpperCase();
-    var dbg = String(env.ZEEKR_CAPDEBUG || env.CAPDEBUG || "").toLowerCase();
-    var capDebug = !(dbg === "" || dbg === "0" || dbg === "false" || dbg === "off" || dbg === "no");
+    var capDebug = envFlag("CAPDEBUG", false);
     if (capDebug) {
       var uu = String(reqEg.url || "");
       var hns = headerNames(reqEg.headers);
@@ -1203,19 +1239,34 @@ export default async function (ctx) {
           (storedEg ? "（已存 ✓）" : "（⚠️ 存储写入失败）") +
           (ruleNameEg ? " 规则:" + ruleNameEg : "")
       );
-      if (prevEg !== auth || capDebug) {
+      // 通知门控：Token 变了 → 立刻一条；没变 → 10 分钟内最多一条
+      //（防止"开一次 App 弹几十条"，同时保证开关开着时每次打开 App 都能看到一条确认）
+      var changedEg = prevEg !== auth;
+      var nowEg = Date.now();
+      var lastEg = Number(storeGet("zeekr_cap_last") || 0) || 0;
+      var quietEg = lastEg > 0 && nowEg - lastEg < 10 * 60 * 1000;
+      if (changedEg || capDebug || !quietEg) {
         var bodyEg =
           tipEg +
           "\n" +
           (storedEg
             ? "已存入客户端持久化存储 ✓，定时任务会自动使用"
-            : "⚠️ 存储写入失败：定时任务无法自动使用，请改用模块参数手填 ZEEKR_TOKEN") +
+            : "⚠️ 存储写入失败：请把下面这行 Token 手填到模块设置的「极氪 Token」栏") +
+          "\n抓取开关：开 ｜ 脚本 v" +
+          ZEEKR_PORT_VERSION +
+          " · Egern" +
           (ruleNameEg ? "\n触发规则：" + ruleNameEg : "") +
+          "\n点这条通知 = Token 已复制到剪贴板（可粘进模块的「极氪 Token」栏）" +
           "\n\n青龙等无法自动抓取的平台，把这行复制过去当 Token：\n" +
           auth;
         log("[极氪签到] 🔐 可复制给青龙的 Token: " + auth);
         try {
-          ctx.notify({ title: "✅ 极氪 Token 已自动保存", body: bodyEg });
+          storeSet("zeekr_cap_last", String(nowEg));
+          ctx.notify({
+            title: "✅ 极氪 Token 已自动保存" + (changedEg ? "" : "（未变化）"),
+            body: bodyEg,
+            action: { type: "clipboard", text: auth },
+          });
         } catch (e) {}
       }
     } else if (methodEg === "OPTIONS") {

@@ -231,11 +231,17 @@ egern = f"""# ══════════════════════
 # **单引号**（双引号里 \\d 是非法转义，会直接报「发生错误」——之前就是这个报错）。
 #
 # Token：默认走「打开极氪 App 自动抓取」（第一个 http_request 规则，需开 MITM）；
-#        也可以在模块设置里填 ZEEKR_TOKEN，或在 Profile 的模块引用处加：
-#          modules:
-#            - url: "{REPO.replace('/dist', '')}/configs/egern.yaml"
-#              env:
-#                {K}: "Bearer eyJ...."
+#        抓到的 Token 存在客户端持久化存储（键 zeekr_val），定时任务自动读，
+#        **不需要**填模块设置里的「极氪 Token」栏（iOS 不允许脚本回写模块设置页）。
+#
+# 抓取开关：模块设置里的「抓取 Token」——
+#        开（默认）= 打开极氪 App 就抓取并存起来，Token 变了立刻弹一条通知，
+#                   没变则 10 分钟内最多弹一条（等于每次开 App 有一条确认）；
+#        关 = 完全不抓取、不写存储、不弹任何通知（含「抓取调试」）。
+#        改完开关把 Egern 的 VPN 开关断开重连一次，让模块参数重新加载。
+#
+# 抓到后想把这行 Token 放进模块设置里那栏：**点一下抓取通知即可复制到剪贴板**，
+# 再粘进「极氪 Token」栏即可（脚本自己没有权限写那一栏）。
 #
 # 场次：00:01 全流程 → 00:10 只领取；08:10 → 08:20；21:30 → 21:40。
 # 想一次跑完（约 3~5 分钟）就在 env 里加 ZEEKR_POLL: "1" 并把 timeout 提到 600。
@@ -249,10 +255,15 @@ icon: "car.fill"
 env_schema:
   {K}:
     name: "极氪 Token"
-    description: "可留空：开着 MITM 打开一次极氪 App 就会自动抓取并存起来"
+    description: "可留空：开着 MITM + 打开「抓取 Token」开关，打开一次极氪 App 就会自动抓取并存起来（用不到这一栏）"
+  ZEEKR_CAPTURE:
+    name: "抓取 Token"
+    description: "开 = 打开极氪 App 就抓取 Token 并存进持久化存储（抓到会弹一条通知）；关 = 不抓取、不写存储、不弹任何通知"
+    options: ["true", "false"]
+    default_value: "true"
   ZEEKR_CAPDEBUG:
     name: "抓取调试"
-    description: "打开后，每条命中的抓取请求都会弹通知（用来确认规则是否生效），排查完记得关掉"
+    description: "打开后，每条命中的抓取请求都会弹通知（列出命中的 URL 和实际收到的头名），排查完记得关掉"
     options: ["false", "true"]
 
 # 需要 MITM 才能抓到 HTTPS 请求里的 Token（启用模块后会合并进主配置）

@@ -1,0 +1,55 @@
+#!name = 极氪签到
+#!desc = 极氪 App 每日自动签到：签到 / 上报步数 / 阅读文章 / 每周点赞 / 领取碎片·能量球·极值
+#!author = m20104600
+#!homepage = https://github.com/m20104600/zeekr-checkin
+#!system = iOS,iPadOS,macOS
+#!tag = 签到,工具
+#!type = normal
+
+# ══════════════════════════════════════════════════════════════════════
+# 极氪签到 · Loon 插件 —— 添加方式：Loon → 配置 → 插件 → + → 粘贴本文件 URL
+# 脚本地址：https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js   （Egern 用 zeekr.egern.js）
+# 国内更快的镜像：https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist
+#
+# 两种拿 Token 的方式（任选）：
+#   A. 自动抓（推荐）：配好下面的抓取规则，开启 MITM（信任 CA）后打开极氪 App 点一下，
+#      Token 自动存进客户端（键名 zeekr_val），并弹一条通知（通知里带完整 Token，
+#      青龙那种抓不了的平台复制过去即可）。定时任务不用填 Token。
+#   B. 手动填：把参数里的 <把这里换成你的Bearer Token> 换成真 Token。
+#      ⚠️ 千万别把 Token 写进公开托管的脚本文件里（本仓库里只有占位符）。
+#
+# 场次安排（与服务器版 systemd 三场一致；默认「快跑 + 10 分钟后补领」）：
+#   00:01 全流程    00:10 只领取（补延迟入账的碎片/能量球）
+#   08:10 全流程    08:20 只领取
+#   21:30 全流程    21:40 只领取
+# 客户端超时能放宽的话，也可以只留 3 条 + POLL=1（脚本自己轮询到领完，约 3~5 分钟）。
+# ══════════════════════════════════════════════════════════════════════
+
+
+[Argument]
+TOKEN = input,"",tag=极氪 Token,desc=可留空：开着 MITM 打开一次极氪 App 就会自动抓取
+TAG = input,"凌晨场",tag=场次标签,desc=只用于通知标题
+
+[Script]
+# ① 自动抓 Token（打开极氪 App 时触发，抓到就存进 Loon；通知里会带完整 Token）
+http-request if ${url} ~= /^https:\/\/api-gw-toc\.zeekrlife\.com\/zeekrlife-app-user/v\d/user/info/query/ then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js") with tag="极氪抓Token", timeout=20
+# 抓不到就把上面那行换成整域名匹配：
+# http-request if ${url} ~= /^https:\/\/api-gw-toc\.zeekrlife\.com\// then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js") with tag="极氪抓Token", timeout=20
+
+# ② 三场定时（快跑，单次约 10~25 秒）+ 每场 10 分钟后的「只领取」补领
+cron "1 0 * * *" then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", {${TOKEN}, ${TAG}}) with tag="极氪签到·凌晨场", timeout=60
+cron "10 0 * * *" then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", "MODE=claim&TAG=凌晨场·补领") with tag="极氪签到·凌晨补领", timeout=60
+cron "10 8 * * *" then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", "MODE=all&ZEEKR_TAG=早间场") with tag="极氪签到·早间场", timeout=60
+cron "20 8 * * *" then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", "MODE=claim&TAG=早间场·补领") with tag="极氪签到·早间补领", timeout=60
+cron "30 21 * * *" then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", "MODE=all&ZEEKR_TAG=晚间场") with tag="极氪签到·晚间场", timeout=60
+cron "40 21 * * *" then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", "MODE=claim&TAG=晚间场·补领") with tag="极氪签到·晚间补领", timeout=60
+
+# 说明：
+# * 本文件是 Loon **插件**：开头的 #!name / #!desc 等元数据头必须有，
+#   少了这些 Loon 会「加载不出来」（这就是之前失败的原因）。
+# * cron 支持 5 段「分 时 日 月 周」或 6 段「秒 分 时 日 月 周」。
+# * 想改成一次跑完（POLL=1，约 3~5 分钟）就把 timeout 提到 600。
+# * TOKEN 参数留空时会用「自动抓取」存下来的 Token；想手填就填 Bearer 开头的整串。
+
+[Mitm]
+hostname = api-gw-toc.zeekrlife.com

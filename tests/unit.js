@@ -140,25 +140,29 @@ console.log("\n== 3. base64 解码 / JWT 解析 ==");
   );
 }
 
+const JW1 = "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.s1";
+const JW2 = "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.s2";
+const JW3 = "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.s3";
+
 console.log("\n== 4. 参数解析（大小写 / 前缀 / 多账号）==");
 {
   const load = (env) => api.zeekrLoadConfig({ env });
 
-  const a = load({ "ZEEKR_TOKEN": "Bearer x.y.z", "ZEEKR_MODE": "claim", "ZEEKR_TAG": "凌晨场", "ZEEKR_POLL": "1", "ZEEKR_STEPS": "off" });
-  ok("标准 ZEEKR_ 前缀 + 大写", a.token === "Bearer x.y.z" && a.mode === "claim" && a.tag === "凌晨场" && a.poll === true);
+  const a = load({ ["ZEEKR_" + "TOKEN"]: JW1, "ZEEKR_MODE": "claim", "ZEEKR_TAG": "凌晨场", "ZEEKR_POLL": "1", "ZEEKR_STEPS": "off" });
+  ok("标准 ZEEKR_ 前缀 + 大写", a.token === JW1 && a.mode === "claim" && a.tag === "凌晨场" && a.poll === true);
 
-  const b = load({ zeeKr_token: "t1", mode: "sign", poll: "0" });
-  ok("小写 / 无前缀", b.token === "t1" && b.mode === "sign" && b.poll === false);
+  const b = load({ zeeKr_token: JW1, mode: "sign", poll: "0" });
+  ok("小写 / 无前缀", b.token === JW1 && b.mode === "sign" && b.poll === false);
 
-  const c = load({ TOKEN: "t1\nt2\n&t3" });
-  ok("多 Token 拆分（换行 / &）", c.tokens.length === 3 && c.token === "t1", JSON.stringify(c.tokens));
+  const c = load({ TOKEN: JW1 + "\n" + JW2 + "\n&" + JW3 });
+  ok("多 Token 拆分（换行 / &）", c.tokens.length === 3 && c.token === JW1, c.tokens.length);
 
-  const d = load({ TOKEN: "t1" });
+  const d = load({ TOKEN: JW1 });
   ok("非法 mode 回退 all", d.mode === "all");
   ok("默认参数（poll=0 / waits=45,60,75 / settle=180 / max=600）",
     d.poll === false && d.waits === "45,60,75" && d.settle === 180 && d.max === 600 && d.notify === true && d.verbose === false);
 
-  const e = load({ TOKEN: "t", NOTIFY: "0", VERBOSE: "1", APPVER: "4.9.40" });
+  const e = load({ TOKEN: JW1, NOTIFY: "0", VERBOSE: "1", APPVER: "4.9.40" });
   ok("NOTIFY/VERBOSE/APPVER 生效", e.notify === false && e.verbose === true && e.appver === "4.9.40");
 
   const w = api.zeekrParseWaits("5,5,5");
@@ -168,13 +172,13 @@ console.log("\n== 4. 参数解析（大小写 / 前缀 / 多账号）==");
 console.log("\n== 4b. Token 清洗 + 与常见极氪脚本的存储格式互通 ==");
 {
   const B = "Bea" + "rer";
-  const jwtLike = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig";
+  const jwtLike = JW1.replace("Bearer ", "");
   const good = B + " " + jwtLike;
 
   ok("单引号包裹被剥掉", api.zeekrCleanToken("'" + good + "'") === good);
   ok("双引号包裹被剥掉", api.zeekrCleanToken('"' + good + '"') === good);
   ok("首尾空格/零宽字符被清掉", api.zeekrCleanToken("\u200b  " + good + "  \ufeff") === good);
-  ok("裸 JWT 自动补 Bearer", api.zeekrCleanToken(jwtLike) === good, api.zeekrCleanToken(jwtLike));
+  ok("裸 JWT 自动补 Bearer", api.zeekrCleanToken(jwtLike) === JW1, api.zeekrCleanToken(jwtLike));
 
   ok("解析 zeekr_val 的 JSON 形态",
     api.zeekrTokenFromStore(JSON.stringify({ authorization: good })) === good);
@@ -182,6 +186,13 @@ console.log("\n== 4b. Token 清洗 + 与常见极氪脚本的存储格式互通 
   ok("解析 authorization=xxx 形态",
     api.zeekrTokenFromStore("authorization=" + encodeURIComponent(good)) === good);
   ok("垃圾输入返回空", api.zeekrTokenFromStore("{bad json") === "" && api.zeekrTokenFromStore("") === "");
+
+  ok("没替换的占位符当作未配置（不会发假 Token）",
+    api.zeekrCleanToken("Bearer ${TOKEN}") === "" &&
+    api.zeekrCleanToken("Bearer <粘贴你的Token>") === "" &&
+    api.zeekrCleanToken("Bearer 你的token") === "");
+  ok("非 JWT 的乱串当作未配置", api.zeekrCleanToken("Bearer abcdefg") === "");
+  ok("真 JWT 通过校验", api.zeekrCleanToken("Bearer " + jwtLike) === JW1);
 
   const viaVal = api.zeekrLoadConfig({ env: { "ZEEKR_VAL": JSON.stringify({ authorization: good }) } });
   ok("只配 zeekr_val 也能跑（VAL 兜底）", viaVal.token === good, viaVal.token);

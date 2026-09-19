@@ -41,17 +41,30 @@
 
 配置文件片段都在 [`configs/`](configs/) 里，照抄即可：
 
-| 客户端 | 片段 | 要点 |
+| 客户端 | 配置文件 | 安装方式 |
 |---|---|---|
-| Quantumult X | [`configs/qx.conf`](configs/qx.conf) | `[mitm]` + `[rewrite_local]`（抓 Token）+ `[task_local]`（六条 cron） |
-| Loon | [`configs/loon.conf`](configs/loon.conf) | 新语法 `cron "..." then script("...")`；文件里附了旧语法等价写法 |
-| Stash | [`configs/stash.yaml`](configs/stash.yaml) | `http.script`（抓 Token）+ `cron.script` + `script-providers` + `http.mitm` |
-| Egern | [`configs/egern.yaml`](configs/egern.yaml) | `scriptings:` 下 `http_request` + 多条 `schedule` |
-| 青龙 | [`configs/qinglong.md`](configs/qinglong.md) | 环境变量 + `task zeekr.qinglong.js` |
+| Quantumult X | [`configs/qx.conf`](configs/qx.conf) | 把 `[mitm]` / `[rewrite_local]` / `[task_local]` 三段并进你的 QX 配置 |
+| **Loon** | [`configs/loon.plugin`](configs/loon.plugin) | **Loon → 配置 → 插件 → 右上角 + → 粘贴上面的插件 URL**（必须是插件文件，首行要有 `#!name`，否则 Loon 加载不出来）。想并进自己的配置就用 [`configs/loon-snippet.conf`](configs/loon-snippet.conf) |
+| Stash | [`configs/stash.yaml`](configs/stash.yaml) | 存成 `xxx.stoverride` 当覆写，或把 `http` / `cron` / `script-providers` 段并进配置 |
+| **Egern** | [`configs/egern.yaml`](configs/egern.yaml) | **Egern → 模块 → 右上角 + → 粘贴上面的模块 URL**（是模块文件，带 `name`/`description` 元数据；不要整段贴到别处，YAML 里正则必须单引号） |
+| 青龙 | [`configs/qinglong.md`](configs/qinglong.md) | 环境变量 + `task zeekr.qinglong.js` 定时任务 |
 
-把片段里的 `<你的脚本地址前缀>` 换成
-`https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist`
-（用 jsDelivr 的话是 `https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist`）。
+**Loon 插件**（直接贴进 Loon 的插件页）：
+
+```
+https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/configs/loon.plugin
+```
+
+**Egern 模块**（直接贴进 Egern 的模块页）：
+
+```
+https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/configs/egern.yaml
+```
+
+**QX / Stash** 用 `configs/qx.conf`、`configs/stash.yaml` 里的内容（地址已经填好，直接复制）。
+
+国内更快的镜像（jsDelivr，把 `raw.githubusercontent.com/m20104600/zeekr-checkin/main` 换成
+`cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main` 即可）。
 
 ### 2. 拿 Token
 
@@ -168,6 +181,9 @@ python3 tests/e2e-qinglong.py # 22 项：真跑青龙脚本（多账号、zeekr_
 | 客户端提示脚本超时 | 用默认 `MODE=all`（约 10~25 秒），别用 `POLL=1`；QX 建议拆成 `sign` + `claim` 两条 |
 | App 里还留着没领的碎片 | 手动跑一次 `MODE=claim`；或改 `POLL=1` 并放宽 timeout |
 | 一直是 `⏳ 减碳2000g` | 正常。这项要靠当天真开车/充电产生减碳，脚本只能「达标就领」 |
+| Loon 插件「加载不出来」 | 用 [`configs/loon.plugin`](configs/loon.plugin)：Loon 只在文件首行是 `#!name` 时才当作插件；只含 `[Script]` 的片段不会被识别 |
+| Egern 报「发生错误，位于第 N 行」 | 用模块方式加载 [`configs/egern.yaml`](configs/egern.yaml)（Egern → 模块 → +）。原因：模块文件需要元数据字段，且 YAML 里 `\d` 必须写在单引号里，双引号内是非法转义 |
+| 抓取规则配了却抓不到 Token | 早期版本的 `configs/*` 正则被多转义一层（`\.` 错写成 `\\.`），匹配不上真实 URL —— 已修。用最新 `configs/`，`tests/configs-check.py` 现在会验证每条正则真的能匹配目标 URL |
 | 通知里一大串乱码/长文本 | 是抓取到的 Token（给青龙复制的）。不想显示设 `CAPSHOW=0` |
 
 ---
@@ -187,3 +203,15 @@ python3 tests/e2e-qinglong.py # 22 项：真跑青龙脚本（多账号、zeekr_
 `carEnergy/getUncollectedBallsPageNew`（可领取）、
 `apply/batchApply`（碎片）、`carEnergy/collectedAllEnergy`（能量球）、
 `carEnergy/collectIntegralZeekrBalls`（极值）。
+
+---
+
+## 更新记录
+
+- **2026-09-19**：修正配置文件的两个致命问题 ——
+  ① Loon 配置改成**真正的插件**（`configs/loon.plugin`，首行 `#!name`，带 `[Argument]` 参数 UI），
+  之前的片段式写法 Loon 加载不出来；
+  ② Egern 配置改成**真正的模块**（元数据 + `mitm` + `scriptings`，正则改单引号），
+  之前的双引号 `\d` 会让 Egern 直接报 YAML 解析错误；
+  ③ 修正所有客户端**抓取正则多转义一层**的问题（原来 `\.` 写成 `\\.`，等于匹配"反斜杠+任意字符"，一条都命中不了），
+  并新增 `tests/configs-check.py` 做回归（校验 YAML 可解析 + 每条正则真能匹配目标 URL + 插件/模块格式）。

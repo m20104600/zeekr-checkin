@@ -1,36 +1,34 @@
 # ══════════════════════════════════════════════════════════════════════
-# 极氪签到 · Stash 配置片段
-# 脚本地址：https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js（Egern 用 zeekr.egern.js）
-#          国内更快的镜像（jsDelivr）：https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist
+# 极氪签到 · Stash（存成 xxx.stoverride 当覆写用，或把各段并进配置）
+# 脚本地址：https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js   （Egern 用 zeekr.egern.js）
+# 国内更快的镜像：https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist
 #
-# 两种用法（任选）：
-#   A. 自动抓 Token（推荐）：用下面的抓取规则，打开极氪 App 点一下，
-#      存储键名 zeekr_val，值是含 authorization 字段的 JSON —— 与常见极氪脚本互通；
-#      青龙那边也可以直接把这份 JSON 塞进环境变量 zeekr_val / ZEEKR_VAL。
-#      Token 自动存进客户端（键名 zeekr_val），定时任务不用填 Token。
-#   B. 手动填 Token：把每条 cron 参数里的 <把这里换成你的Bearer Token> 替换成真 Token。
-#      QX 的 # 参数不会发到服务器，Loon/Stash/Egern 的 argument/env 也只在本机。
-#      ⚠️ 千万别把 Token 写进公开托管的脚本文件里！
+# 两种拿 Token 的方式（任选）：
+#   A. 自动抓（推荐）：配好下面的抓取规则，开启 MITM（信任 CA）后打开极氪 App 点一下，
+#      Token 自动存进客户端（键名 zeekr_val），并弹一条通知（通知里带完整 Token，
+#      青龙那种抓不了的平台复制过去即可）。定时任务不用填 Token。
+#   B. 手动填：把参数里的 <把这里换成你的Bearer Token> 换成真 Token。
+#      ⚠️ 千万别把 Token 写进公开托管的脚本文件里（本仓库里只有占位符）。
 #
-# 场次安排（与 Hermes 里那套 systemd 三场一致，脚本默认「快跑 + 10 分钟后补领」）：
+# 场次安排（与服务器版 systemd 三场一致；默认「快跑 + 10 分钟后补领」）：
 #   00:01 全流程    00:10 只领取（补延迟入账的碎片/能量球）
 #   08:10 全流程    08:20 只领取
 #   21:30 全流程    21:40 只领取
-# 客户端超时可以放宽的话，可以只用 3 条 cron + POLL=1（脚本自己轮询到领完，
-# 单次约 3~5 分钟，需要 timeout ≥ 420）。
+# 客户端超时能放宽的话，也可以只留 3 条 + POLL=1（脚本自己轮询到领完，约 3~5 分钟）。
 # ══════════════════════════════════════════════════════════════════════
 
+# 正则用单引号包起来：YAML 单引号内反斜杠不转义
 http:
-  # MitM 域名：HTTPS 抓 Token 必须开（记得先装好 CA 证书）
+  # 开启 MITM 的域名（记得先装好 CA 证书）
   mitm:
     - api-gw-toc.zeekrlife.com
-  # 自动抓 Token 的改写脚本（type: request 只读请求头，不改请求）
+  # 自动抓 Token（type: request：只读请求头，不改请求）
   script:
     - name: zeekr
-      # 也可放宽为 ^https://api-gw-toc\.zeekrlife\.com/
-      match: ^https://api-gw-toc\.zeekrlife\.com/zeekrlife-app-user/v\d/user/info/query
+      match: '^https://api-gw-toc\.zeekrlife\.com/zeekrlife-app-user/v\d/user/info/query'
       type: request
       timeout: 10
+    # 抓不到就把上面 match 换成整域名：'^https://api-gw-toc\.zeekrlife\.com/'
 
 cron:
   script:
@@ -65,7 +63,7 @@ script-providers:
     interval: 86400
 
 # 说明：
-# * cron 用的是标准 5 段表达式（分 时 日 月 周，设备本地时间）。
-# * argument 是 JSON 字符串；也可以用 "ZEEKR_TOKEN=xxx&ZEEKR_TAG=xxx" 形式。
-# * 想一次跑完（等奖励入账后领光）：argument 里加 "ZEEKR_POLL":"1"，并把 timeout 提到 420。
-# * 脚本执行需要 Stash 的 Network Extension（VPN）处于已连接状态。
+# * cron 里的 name 必须与 script-providers 的键（zeekr）一致。
+# * argument 是 JSON 字符串；"ZEEKR_MODE=claim&ZEEKR_TAG=补领" 这种查询串也认。
+# * 定时任务需要 Stash 的 Network Extension（VPN）处于已连接状态。
+# * 想一次跑完：argument 里加 "ZEEKR_POLL":"1" 并把 timeout 提到 420。

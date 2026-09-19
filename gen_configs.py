@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-生成各客户端的配置片段（configs/）。
-注意：Token 只写占位符，绝不写真实值；占位符文本用拼接生成，
-避免被安全屏蔽器当成密钥打码（否则写进文件的内容会被破坏）。
+生成各客户端的配置（configs/）。
+
+避坑记录（2026-09-19，用户实测踩到）：
+  1) 正则一律只在 **一个** 地方（本文件的 RE_* 变量）用 raw 字符串写，且只写一层反斜杠。
+     之前多写一层（\\. 变成 \\\\.）→ 正则含义变成"反斜杠+任意字符"，
+     抓取规则一条都不会命中（tests/configs-check.py 里有回归测试）。
+  2) YAML 里的正则用**单引号**；双引号内 \\d 是非法转义，Egern 直接报 YAML 解析错误。
+  3) Python 的 f-string 表达式里不能出现反斜杠，所以正则先算好再插值。
+  4) Token 只写占位符，占位符文本用拼接生成（避免被安全屏蔽器当成密钥打码）。
 """
 import pathlib
 
@@ -11,45 +17,53 @@ ROOT = pathlib.Path(__file__).resolve().parent
 OUT = ROOT / "configs"
 OUT.mkdir(exist_ok=True)
 
-K = "ZEEKR_" + "TOKEN"          # 环境变量/参数名
-BEARER = "Bea" + "rer"
-PH = "<把这里换成你的" + BEARER + " Token>"   # 占位符
 REPO = "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist"
-REPO_ALT = "https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist"   # 国内更快的镜像
+REPO_ALT = "https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist"
+K = "ZEEKR_" + "TOKEN"
+BEARER = "Bea" + "rer"
+PH = "<把这里换成你的" + BEARER + " Token>"
 
-HEADER = """# ══════════════════════════════════════════════════════════════════════
-# 极氪签到 · {client} 配置片段
-# 脚本地址：{repo}/zeekr.js（Egern 用 zeekr.egern.js）
-#          国内更快的镜像（jsDelivr）：https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist
+# 抓 Token 的目标：App 必定会发的接口（与常见极氪脚本一致）
+EP = r"zeekrlife-app-user/v\d/user/info/query"
+
+# ── 各客户端要用的正则（都只写一层反斜杠）──
+RE_QX = r"^https:\/\/api-gw-toc\.zeekrlife\.com\/" + EP + r"$"
+RE_QX_BROAD = r"^https:\/\/api-gw-toc\.zeekrlife\.com\/"
+RE_LOON = r"/^https:\/\/api-gw-toc\.zeekrlife\.com\/" + EP + r"/"
+RE_LOON_BROAD = r"/^https:\/\/api-gw-toc\.zeekrlife\.com\//"
+RE_STASH = r"^https://api-gw-toc\.zeekrlife\.com/" + EP
+RE_STASH_BROAD = r"^https://api-gw-toc\.zeekrlife\.com/"
+
+HEADER = f"""# ══════════════════════════════════════════════════════════════════════
+# 极氪签到 · {{client}}
+# 脚本地址：{REPO}/zeekr.js   （Egern 用 zeekr.egern.js）
+# 国内更快的镜像：{REPO_ALT}
 #
-# 两种用法（任选）：
-#   A. 自动抓 Token（推荐）：用下面的抓取规则，打开极氪 App 点一下，
-#      存储键名 zeekr_val，值是含 authorization 字段的 JSON —— 与常见极氪脚本互通；
-#      青龙那边也可以直接把这份 JSON 塞进环境变量 zeekr_val / ZEEKR_VAL。
-#      Token 自动存进客户端（键名 zeekr_val），定时任务不用填 Token。
-#   B. 手动填 Token：把每条 cron 参数里的 {ph} 替换成真 Token。
-#      QX 的 # 参数不会发到服务器，Loon/Stash/Egern 的 argument/env 也只在本机。
-#      ⚠️ 千万别把 Token 写进公开托管的脚本文件里！
+# 两种拿 Token 的方式（任选）：
+#   A. 自动抓（推荐）：配好下面的抓取规则，开启 MITM（信任 CA）后打开极氪 App 点一下，
+#      Token 自动存进客户端（键名 zeekr_val），并弹一条通知（通知里带完整 Token，
+#      青龙那种抓不了的平台复制过去即可）。定时任务不用填 Token。
+#   B. 手动填：把参数里的 {PH} 换成真 Token。
+#      ⚠️ 千万别把 Token 写进公开托管的脚本文件里（本仓库里只有占位符）。
 #
-# 场次安排（与 Hermes 里那套 systemd 三场一致，脚本默认「快跑 + 10 分钟后补领」）：
+# 场次安排（与服务器版 systemd 三场一致；默认「快跑 + 10 分钟后补领」）：
 #   00:01 全流程    00:10 只领取（补延迟入账的碎片/能量球）
 #   08:10 全流程    08:20 只领取
 #   21:30 全流程    21:40 只领取
-# 客户端超时可以放宽的话，可以只用 3 条 cron + POLL=1（脚本自己轮询到领完，
-# 单次约 3~5 分钟，需要 timeout ≥ 420）。
+# 客户端超时能放宽的话，也可以只留 3 条 + POLL=1（脚本自己轮询到领完，约 3~5 分钟）。
 # ══════════════════════════════════════════════════════════════════════
 """
 
 # ───────────────────────────── Quantumult X ─────────────────────────────
-qx = HEADER.format(client="Quantumult X", repo=REPO, ph=PH) + f"""
+qx = HEADER.format(client="Quantumult X") + f"""
 [mitm]
 hostname = api-gw-toc.zeekrlife.com
 
 [rewrite_local]
-# 自动抓 Token：极氪 App 任何一条走该域名的请求都会把 Authorization 存进 QX
-^https:\\/\\/api-gw-toc\\.zeekrlife\\.com\\/zeekrlife-app-user/v\\d/user/info/query$ url script-request-header {REPO}/zeekr.js
-# 若抓不到（该接口没触发），把上面那行换成整域名匹配（开销略大但更稳）：
-# ^https:\\/\\/api-gw-toc\\.zeekrlife\\.com\\/ url script-request-header {REPO}/zeekr.js
+# 自动抓 Token：极氪 App 会发的那个接口，抓到 Authorization 就存进 QX
+{RE_QX} url script-request-header {REPO}/zeekr.js
+# 抓不到就把上面那行换成整域名匹配（更稳，开销略大）：
+# {RE_QX_BROAD} url script-request-header {REPO}/zeekr.js
 
 [task_local]
 # 凌晨场
@@ -63,59 +77,82 @@ hostname = api-gw-toc.zeekrlife.com
 40 21 * * * {REPO}/zeekr.js#MODE=claim&TAG=晚间场·补领, tag=极氪签到·晚间补领, enabled=true
 
 # 说明：
-# * QX 的 cron 是 5 段：分 时 日 月 周（用北京时间/设备本地时间）。
-# * QX 脚本执行上限约 30 秒，所以用「快跑 + 补领」而不是 POLL=1。
-# * 抓取规则只需要「打开极氪 App 点一下」时生效一次，之后可以把
-#   [rewrite_local] 那条注释掉（但留着也不影响，Token 变了会自动更新）。
-# * 若抓取规则已抓到 Token，上面每条 cron 的 {K}= 参数可以整段删掉。
+# * QX 的 cron 是 5 段「分 时 日 月 周」，按设备本地时间（北京时间为准）。
+# * QX 脚本执行上限约 30 秒且不可调，所以用「快跑 + 补领」，不要用 POLL=1。
+# * 配上抓取规则后，上面每条 cron 的 {K}= 参数可以整段删掉（用抓到的 Token）。
+# * 抓取规则只在「打开极氪 App」时生效；平时可以关掉 MITM，不影响定时任务。
 """
 
 # ─────────────────────────────── Loon ───────────────────────────────
-loon = HEADER.format(client="Loon", repo=REPO, ph=PH) + f"""
-# ── Loon 3.5.1(983) 及以后的新语法 ──
-[Script]
-# 自动抓 Token（打开极氪 App 时触发一次）
-# 匹配 App 必定会发的那个接口（与常见极氪脚本一致）；抓不到就把正则放宽成 /^https:\\/\\/api-gw-toc\\.zeekrlife\\.com\\//
-http-request if ${{url}} ~= /^https:\\/\\/api-gw-toc\\.zeekrlife\\.com\\/zeekrlife-app-user/v\\d/user/info/query/ then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
+loon_plugin = f"""#!name = 极氪签到
+#!desc = 极氪 App 每日自动签到：签到 / 上报步数 / 阅读文章 / 每周点赞 / 领取碎片·能量球·极值
+#!author = m20104600
+#!homepage = https://github.com/m20104600/zeekr-checkin
+#!system = iOS,iPadOS,macOS
+#!tag = 签到,工具
+#!type = normal
 
-# 凌晨场（timeout 60 秒足够快跑；改成 POLL=1 时请设 timeout=600）
+""" + HEADER.format(client="Loon 插件 —— 添加方式：Loon → 配置 → 插件 → + → 粘贴本文件 URL") + f"""
+
+[Argument]
+TOKEN = input,"",tag=极氪 Token,desc=可留空：开着 MITM 打开一次极氪 App 就会自动抓取
+TAG = input,"凌晨场",tag=场次标签,desc=只用于通知标题
+
+[Script]
+# ① 自动抓 Token（打开极氪 App 时触发，抓到就存进 Loon；通知里会带完整 Token）
+http-request if ${{url}} ~= {RE_LOON} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
+# 抓不到就把上面那行换成整域名匹配：
+# http-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
+
+# ② 三场定时（快跑，单次约 10~25 秒）+ 每场 10 分钟后的「只领取」补领
+cron "1 0 * * *" then script("{REPO}/zeekr.js", {{${{TOKEN}}, ${{TAG}}}}) with tag="极氪签到·凌晨场", timeout=60
+cron "10 0 * * *" then script("{REPO}/zeekr.js", "MODE=claim&TAG=凌晨场·补领") with tag="极氪签到·凌晨补领", timeout=60
+cron "10 8 * * *" then script("{REPO}/zeekr.js", "MODE=all&ZEEKR_TAG=早间场") with tag="极氪签到·早间场", timeout=60
+cron "20 8 * * *" then script("{REPO}/zeekr.js", "MODE=claim&TAG=早间场·补领") with tag="极氪签到·早间补领", timeout=60
+cron "30 21 * * *" then script("{REPO}/zeekr.js", "MODE=all&ZEEKR_TAG=晚间场") with tag="极氪签到·晚间场", timeout=60
+cron "40 21 * * *" then script("{REPO}/zeekr.js", "MODE=claim&TAG=晚间场·补领") with tag="极氪签到·晚间补领", timeout=60
+
+# 说明：
+# * 本文件是 Loon **插件**：开头的 #!name / #!desc 等元数据头必须有，
+#   少了这些 Loon 会「加载不出来」（这就是之前失败的原因）。
+# * cron 支持 5 段「分 时 日 月 周」或 6 段「秒 分 时 日 月 周」。
+# * 想改成一次跑完（POLL=1，约 3~5 分钟）就把 timeout 提到 600。
+# * TOKEN 参数留空时会用「自动抓取」存下来的 Token；想手填就填 Bearer 开头的整串。
+
+[Mitm]
+hostname = api-gw-toc.zeekrlife.com
+"""
+
+loon_snippet = HEADER.format(client="Loon 配置片段（想合并进自己的 .conf 时用；手机上装插件请用 loon.plugin）") + f"""
+[Script]
+# 自动抓 Token
+http-request if ${{url}} ~= {RE_LOON} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
+# 三场 + 补领（argument 直接写字面串）
 cron "1 0 * * *" then script("{REPO}/zeekr.js", "{K}={PH}&TAG=凌晨场") with tag="极氪签到·凌晨场", timeout=60
 cron "10 0 * * *" then script("{REPO}/zeekr.js", "MODE=claim&TAG=凌晨场·补领") with tag="极氪签到·凌晨补领", timeout=60
-# 早间场
 cron "10 8 * * *" then script("{REPO}/zeekr.js", "{K}={PH}&TAG=早间场") with tag="极氪签到·早间场", timeout=60
 cron "20 8 * * *" then script("{REPO}/zeekr.js", "MODE=claim&TAG=早间场·补领") with tag="极氪签到·早间补领", timeout=60
-# 晚间场
 cron "30 21 * * *" then script("{REPO}/zeekr.js", "{K}={PH}&TAG=晚间场") with tag="极氪签到·晚间场", timeout=60
 cron "40 21 * * *" then script("{REPO}/zeekr.js", "MODE=claim&TAG=晚间场·补领") with tag="极氪签到·晚间补领", timeout=60
 
 [Mitm]
 hostname = api-gw-toc.zeekrlife.com
-
-# ── 旧语法（Loon 3.5.1 (982) 及以前）等价写法，二选一 ──
-# [Script]
-# http-request ^https:\\/\\/api-gw-toc\\.zeekrlife\\.com\\/ script-path={REPO}/zeekr.js, tag=极氪抓Token, timeout=20, enable=true
-# cron "1 0 * * *" script-path={REPO}/zeekr.js, tag=极氪签到·凌晨场, timeout=60, argument="{K}={PH}&TAG=凌晨场", enable=true
-# cron "10 0 * * *" script-path={REPO}/zeekr.js, tag=极氪签到·凌晨补领, timeout=60, argument="MODE=claim&TAG=凌晨场·补领", enable=true
 """
-for slot, hour, minute in (("早间场", 8, 10), ("晚间场", 21, 30)):
-    loon += (
-        f"# cron \"{minute} {hour} * * *\" script-path={REPO}/zeekr.js, tag=极氪签到·{slot},"
-        f" timeout=60, argument=\"{K}={PH}&TAG={slot}\", enable=true\n"
-    )
 
 # ─────────────────────────────── Stash ───────────────────────────────
-stash = HEADER.format(client="Stash", repo=REPO, ph=PH) + f"""
+stash = HEADER.format(client="Stash（存成 xxx.stoverride 当覆写用，或把各段并进配置）") + f"""
+# 正则用单引号包起来：YAML 单引号内反斜杠不转义
 http:
-  # MitM 域名：HTTPS 抓 Token 必须开（记得先装好 CA 证书）
+  # 开启 MITM 的域名（记得先装好 CA 证书）
   mitm:
     - api-gw-toc.zeekrlife.com
-  # 自动抓 Token 的改写脚本（type: request 只读请求头，不改请求）
+  # 自动抓 Token（type: request：只读请求头，不改请求）
   script:
     - name: zeekr
-      # 也可放宽为 ^https://api-gw-toc\\.zeekrlife\\.com/
-      match: ^https://api-gw-toc\\.zeekrlife\\.com/zeekrlife-app-user/v\\d/user/info/query
+      match: '{RE_STASH}'
       type: request
       timeout: 10
+    # 抓不到就把上面 match 换成整域名：'{RE_STASH_BROAD}'
 
 cron:
   script:
@@ -150,31 +187,66 @@ script-providers:
     interval: 86400
 
 # 说明：
-# * cron 用的是标准 5 段表达式（分 时 日 月 周，设备本地时间）。
-# * argument 是 JSON 字符串；也可以用 "{K}=xxx&ZEEKR_TAG=xxx" 形式。
-# * 想一次跑完（等奖励入账后领光）：argument 里加 "ZEEKR_POLL":"1"，并把 timeout 提到 420。
-# * 脚本执行需要 Stash 的 Network Extension（VPN）处于已连接状态。
+# * cron 里的 name 必须与 script-providers 的键（zeekr）一致。
+# * argument 是 JSON 字符串；"ZEEKR_MODE=claim&ZEEKR_TAG=补领" 这种查询串也认。
+# * 定时任务需要 Stash 的 Network Extension（VPN）处于已连接状态。
+# * 想一次跑完：argument 里加 "ZEEKR_POLL":"1" 并把 timeout 提到 420。
 """
 
 # ─────────────────────────────── Egern ───────────────────────────────
-egern = HEADER.format(client="Egern", repo=REPO, ph=PH) + f"""
+egern = f"""# ══════════════════════════════════════════════════════════════════════
+# 极氪签到 · Egern **模块** 
+#
+# 添加方式（推荐模块方式，别直接整段贴到别处）：
+#   Egern → 模块 → 右上角 + → URL 填：
+#     {REPO.replace('/dist', '')}/configs/egern.yaml
+#   或把下面的 mitm / scriptings 两段复制进你的 Profile.yaml。
+#
+# 注意：Egern 的模块文件需要 name/description 这类元数据；YAML 里正则必须用
+# **单引号**（双引号里 \\d 是非法转义，会直接报「发生错误」——之前就是这个报错）。
+#
+# Token：默认走「打开极氪 App 自动抓取」（第一个 http_request 规则，需开 MITM）；
+#        也可以在模块设置里填 ZEEKR_TOKEN，或在 Profile 的模块引用处加：
+#          modules:
+#            - url: "{REPO.replace('/dist', '')}/configs/egern.yaml"
+#              env:
+#                {K}: "Bearer eyJ...."
+#
+# 场次：00:01 全流程 → 00:10 只领取；08:10 → 08:20；21:30 → 21:40。
+# 想一次跑完（约 3~5 分钟）就在 env 里加 ZEEKR_POLL: "1" 并把 timeout 提到 600。
+# ══════════════════════════════════════════════════════════════════════
+name: "极氪签到"
+description: "极氪 App 每日自动签到 / 步数 / 阅读文章 / 每周点赞 / 领取碎片·能量球·极值"
+author: "m20104600"
+homepage: "https://github.com/m20104600/zeekr-checkin"
+icon: "car.fill"
+
+env_schema:
+  {K}:
+    name: "极氪 Token"
+    description: "可留空：开着 MITM 打开一次极氪 App 就会自动抓取并存起来"
+
+# 需要 MITM 才能抓到 HTTPS 请求里的 Token（启用模块后会合并进主配置）
+mitm:
+  hostnames:
+    - "api-gw-toc.zeekrlife.com"
+
 scriptings:
-  # 自动抓 Token（HTTP 请求脚本，需要 Egern 的 HTTPS 解密/MitM 开启）
+  # ① 自动抓 Token（HTTP 请求脚本）
   - http_request:
       name: "极氪抓Token"
-      # 也可放宽为 "^https://api-gw-toc\\\\.zeekrlife\\\\.com/"
-      match: "^https://api-gw-toc\\\\.zeekrlife\\\\.com/zeekrlife-app-user/v\\d/user/info/query"
+      match: '{RE_STASH}'
       script_url: "{REPO}/zeekr.egern.js"
       timeout: 20
+      # 抓不到就把 match 换成整域名：'{RE_STASH_BROAD}'
 
-  # 凌晨场
+  # ② 三场定时 + 每场 10 分钟后的补领
   - schedule:
       name: "极氪签到·凌晨场"
       cron: "1 0 * * *"
       script_url: "{REPO}/zeekr.egern.js"
       timeout: 120
       env:
-        {K}: "{PH}"
         ZEEKR_MODE: "all"
         ZEEKR_TAG: "凌晨场"
   - schedule:
@@ -185,15 +257,12 @@ scriptings:
       env:
         ZEEKR_MODE: "claim"
         ZEEKR_TAG: "凌晨场·补领"
-
-  # 早间场
   - schedule:
       name: "极氪签到·早间场"
       cron: "10 8 * * *"
       script_url: "{REPO}/zeekr.egern.js"
       timeout: 120
       env:
-        {K}: "{PH}"
         ZEEKR_MODE: "all"
         ZEEKR_TAG: "早间场"
   - schedule:
@@ -204,15 +273,12 @@ scriptings:
       env:
         ZEEKR_MODE: "claim"
         ZEEKR_TAG: "早间场·补领"
-
-  # 晚间场
   - schedule:
       name: "极氪签到·晚间场"
       cron: "30 21 * * *"
       script_url: "{REPO}/zeekr.egern.js"
       timeout: 120
       env:
-        {K}: "{PH}"
         ZEEKR_MODE: "all"
         ZEEKR_TAG: "晚间场"
   - schedule:
@@ -223,35 +289,30 @@ scriptings:
       env:
         ZEEKR_MODE: "claim"
         ZEEKR_TAG: "晚间场·补领"
-
-# 说明：
-# * Egern 的 schedule 默认超时只有 10 秒、最大 600 秒 —— 务必显式写 timeout。
-# * 想一次跑完（等奖励入账后领光）：env 里加 ZEEKR_POLL: "1"，timeout 设 600。
-# * 抓取脚本要用 zeekr.egern.js（Egern 的脚本是 ES Module，和别家不同一个文件）。
 """
 
 # ─────────────────────────────── 青龙 ───────────────────────────────
-ql = HEADER.format(client="青龙 / 任意 Node.js", repo=REPO, ph=PH) + f"""
+ql = HEADER.format(client="青龙 / 任意 Node.js") + f"""
 # 零、怎么拿 Token（青龙没有 MITM，抓不了 —— 用手机抓完复制过来）
-#   1) 手机上装 QX / Loon / Stash / Egern 任一个，按 configs/ 里对应片段配好「抓取规则」，
+#   1) 手机上装 QX / Loon / Stash / Egern 任一个，按 configs/ 里对应文件配好「抓取规则」，
 #      开启 MITM（HTTPS 解密）并信任 CA 证书；
 #   2) 打开极氪 App 随便点一下（进「我的」即可）；
-#   3) 手机会弹通知「✅ 极氪 Token 已自动保存」，正文最后有一整行 Bearer eyJ...；
+#   3) 手机会弹通知「✅ 极氪 Token 已自动保存」，正文最后有一整行 {BEARER} eyJ...；
 #   4) 长按复制那一行 -> 粘贴到青龙环境变量 {K}（或把整段 JSON 粘到 zeekr_val）；
 #   5) 平时可以关掉 MITM。Token 大约半年有效，过期后再抓一次即可。
-#   （想自己抓包也行：过滤域名 api-gw-toc.zeekrlife.com，复制请求头 Authorization 的值。）
+#   （也可以自己抓包：过滤域名 api-gw-toc.zeekrlife.com，复制请求头 Authorization 的值。）
 #
 # 一、放脚本
 #   方式 A：青龙「脚本管理」→ 新建脚本，粘贴 dist/zeekr.qinglong.js 的内容；
 #   方式 B：把 zeekr.qinglong.js 放进 /ql/scripts/；
 #   方式 C：青龙「订阅管理」→ 新建订阅，链接指向存放该文件的仓库，
-#           白名单填 zeekr.qinglong.js（定时任务里脚本名要对应）。
+#           白名单填 zeekr.qinglong.js（定时任务里的脚本名要对应）。
 
 # 二、环境变量（青龙「环境变量」页新增）
 {K} = {PH}          # 必填；多账号用换行分隔，或用 {K}_1 / {K}_2 ...
 ZEEKR_MODE   = all            # all(默认) | sign | claim（补领任务用 claim）
-#   兼容写法：不配 {K} 而配 zeekr_val / ZEEKR_VAL（值是含 authorization 字段的 JSON，
-#   与常见极氪脚本/别的客户端抓取出来的格式一致），脚本会自动认。
+#   兼容写法：不配 {K} 而配 zeekr_val / ZEEKR_VAL
+#   （值是含 authorization 字段的 JSON，与手机端抓出来的格式一致），脚本会自动认。
 ZEEKR_TAG    = 凌晨场          # 只影响通知标题
 ZEEKR_STEPS  = 10000          # 或 off 跳过步数上报
 ZEEKR_APPVER = 4.9.33         # 可选，跳过 iTunes 版本查询
@@ -261,45 +322,32 @@ ZEEKR_NOTIFY = 1              # 0 关闭通知
 #       找不到时可用 ZEEKR_TG_BOT_TOKEN + ZEEKR_TG_CHAT_ID 走 Telegram。
 
 # 三、定时任务（「定时任务」页新建，命令都是 task zeekr.qinglong.js）
-#   任务名                  命令                        定时规则
-#   极氪签到·凌晨场          task zeekr.qinglong.js      1 0 * * *
-#   极氪签到·凌晨补领        task zeekr.qinglong.js      10 0 * * *
-#   极氪签到·早间场          task zeekr.qinglong.js      10 8 * * *
-#   极氪签到·早间补领        task zeekr.qinglong.js      20 8 * * *
-#   极氪签到·晚间场          task zeekr.qinglong.js      30 21 * * *
-#   极氪签到·晚间补领        task zeekr.qinglong.js      40 21 * * *
-#   ⚠️ 补领那三条要单独建「环境变量」或用脚本参数不行 —— 青龙的环境变量是全局的，
-#      所以「只领取」的补领任务请这样建：命令后面加参数不被支持，
-#      改用「任务 → 编辑 → 环境变量」里单独为该任务设 ZEEKR_MODE=claim，
-#      或者干脆六条都用 ZEEKR_MODE=all（多跑几次签到是幂等的，只是多几次请求）。
-#
-# 简易做法（懒人版）：只建 3 条「全流程」任务（00:01 / 08:10 / 21:30），
-# 把 ZEEKR_POLL 设为 1，并把青龙的任务超时设为 600 秒 —— 一次跑完不用补领。
-#
-# 青龙自带「环境变量」是全局的，若想六条任务用不同 MODE，
-# 用「定时任务 → 编辑 → 环境变量」逐条覆盖（青龙支持任务级环境变量）。
+#   任务名               定时规则      说明
+#   极氪签到·凌晨场       1 0 * * *     全流程
+#   极氪签到·凌晨补领     10 0 * * *    只领取（补延迟入账的奖励）
+#   极氪签到·早间场       10 8 * * *
+#   极氪签到·早间补领     20 8 * * *
+#   极氪签到·晚间场       30 21 * * *
+#   极氪签到·晚间补领     40 21 * * *
+#   MODE 用「任务级环境变量」覆盖（青龙支持在定时任务编辑页给单条任务加环境变量）；
+#   懒人做法：只建 3 条「全流程」+ ZEEKR_POLL=1 + 任务超时 600 秒，一次跑完。
 """
 
-# 青龙没有 MITM，把表头里"用抓取规则自动抓"的说法改成"手机抓完复制过来"
-ql = ql.replace(
-    "#   A. 自动抓 Token（推荐）：用下面的抓取规则，打开极氪 App 点一下，",
-    "#   A. 手机抓 Token（推荐）：青龙没有 MITM 抓不了，用手机 QX/Loon/Stash/Egern 抓一次，",
-).replace(
-    "#      Token 自动存进客户端（键名 zeekr_val），定时任务不用填 Token。",
-    "#      然后把 Token 复制过来（见下面「零、怎么拿 Token」），定时任务不用填。",
-)
-
-files = {
+FILES = {
     "qx.conf": qx,
-    "loon.conf": loon,
+    "loon.plugin": loon_plugin,
+    "loon-snippet.conf": loon_snippet,
     "stash.yaml": stash,
     "egern.yaml": egern,
     "qinglong.md": ql,
 }
 
-for name, text in files.items():
-    p = OUT / name
-    p.write_text(text, encoding="utf-8")
-    leaks = text.count(PH)
-    print(f"写入 {p} ({len(text)} 字节) 占位符出现 {leaks} 次"
-          + ("  ⚠️ 含打码残留(***)！" if "***" in text else ""))
+if __name__ == "__main__":
+    for name, text in FILES.items():
+        p = OUT / name
+        p.write_text(text, encoding="utf-8")
+        bad = text.count("\\\\/") + text.count("\\\\.")
+        print(
+            f"写入 {p} ({len(text)} 字节) 占位符 {text.count(PH)} 处"
+            + (f"  ⚠️ 双反斜杠残留 {bad} 处" if bad else "")
+        )

@@ -251,6 +251,10 @@ function zeekrCleanToken(t) {
   s = s.replace(/\s+/g, " ").trim();
   if (s && !/^Bearer\s/i.test(s) && /^eyJ[\w-]+\.[\w-]+\./.test(s))
     s = "Bearer " + s;
+  // 极氪的 Token 一定是 JWT（脚本要用里面的 accountId / deviceId）。
+  // 这里做一次校验，好处是：插件/配置里没替换掉的占位符（如 ${TOKEN}、<粘贴你的Token>）
+  // 会被当成"没配 Token"，走自动抓取的兜底，而不是发一个假 Token 出去变成"登录已失效"。
+  if (s && !/^Bearer\s+[\w-]+\.[\w-]+\.[\w-]*$/.test(s)) return "";
   return s;
 }
 

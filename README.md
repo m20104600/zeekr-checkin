@@ -135,7 +135,7 @@ Egern: env: { ZEEKR_TOKEN: "Bearer eyJ...", ZEEKR_TAG: "凌晨场" }
 │   ├── zeekr.js           QX / Loon / Stash / Surge / Node
 │   ├── zeekr.egern.js     Egern（ES Module + ctx API）
 │   └── zeekr.qinglong.js  青龙（多账号 + sendNotify + 无 fetch 时 https 兜底）
-├── configs/               各客户端配置片段（qx.conf / loon.conf / stash.yaml / egern.yaml / qinglong.md）
+├── configs/               各客户端配置（qx.conf / loon.plugin / loon-snippet.conf / stash.yaml / egern.yaml / qinglong.md）
 ├── parts/core.js          核心逻辑（运行时无关）
 ├── tpl/{classic,egern,qinglong}.js   三个模板，含 /*__CORE__*/ 占位
 ├── build.py               把 core 内联进模板 → dist/，并做 node --check

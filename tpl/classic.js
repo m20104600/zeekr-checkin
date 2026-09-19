@@ -271,30 +271,28 @@ var ZEEKR_DEFAULT_CONFIG = {
    * 定时任务上下文：env 里没 Token 就用存储里的兜底。
    * ─────────────────────────────────────────────────────────────────── */
   var ZEEKR_STORE_KEY = "zeekr_val";
-  var ZEEKR_NOTIFY_KEY = "zeekr_cap_last"; // 上次弹抓取通知的时间戳（防刷屏用）
-  function storeRead(key) {
-    var k = key || ZEEKR_STORE_KEY;
+
+  function storeRead() {
     try {
       if (typeof $persistentStore !== "undefined" && $persistentStore && $persistentStore.read)
-        return $persistentStore.read(k);
+        return $persistentStore.read(ZEEKR_STORE_KEY);
     } catch (e) {}
     try {
       if (typeof $prefs !== "undefined" && $prefs && $prefs.valueForKey)
-        return $prefs.valueForKey(k);
+        return $prefs.valueForKey(ZEEKR_STORE_KEY);
     } catch (e2) {}
     return null;
   }
-  function storeWrite(val, key) {
-    var k = key || ZEEKR_STORE_KEY;
+  function storeWrite(val) {
     try {
       if (typeof $persistentStore !== "undefined" && $persistentStore && $persistentStore.write) {
-        $persistentStore.write(val, k);
+        $persistentStore.write(val, ZEEKR_STORE_KEY);
         return true;
       }
     } catch (e) {}
     try {
       if (typeof $prefs !== "undefined" && $prefs && $prefs.setValueForKey) {
-        $prefs.setValueForKey(val, k);
+        $prefs.setValueForKey(val, ZEEKR_STORE_KEY);
         return true;
       }
     } catch (e2) {}
@@ -307,6 +305,19 @@ var ZEEKR_DEFAULT_CONFIG = {
     }
     return false;
   }
+  /** 读一个布尔型参数（大小写不敏感、前缀 ZEEKR_ 可有可无） */
+  function envFlag(name, def) {
+    for (var k in env) {
+      if (!Object.prototype.hasOwnProperty.call(env, k)) continue;
+      if (zeekrNormKey(k) !== name) continue;
+      var v = String(env[k]).trim().toLowerCase();
+      if (v === "" || v === "0" || v === "false" || v === "off" || v === "no") return false;
+      // 插件参数没被替换（如 ${CAPDEBUG}）时按默认值处理，别把占位符当成 true
+      if (v.charAt(0) === "$" || v.charAt(0) === "<") return def;
+      return true;
+    }
+    return def;
+  }
 
   var scriptType = "";
   try {
@@ -318,14 +329,6 @@ var ZEEKR_DEFAULT_CONFIG = {
     : !scriptType && typeof $request !== "undefined" && !!$request && !!$request.headers;
 
   if (inRewrite) {
-    // 抓取开关：只认 CAPOFF（「停止抓取」打开时跳过）。刻意不看 CAPON —— 客户端里残留的
-    // CAPON=false 会把抓取永久关掉（2026-09-19 踩过这个坑）。抓过一次就能关掉，免得每次开 App 都写存储/弹通知。
-    // 客户端关法：Egern 模块设置 / Loon 插件参数 / QX 的 # 参数 / Stash 的 argument。
-    if (zeekrReadFlag(env, ["CAPOFF", "NOCAP", "CAPSTOP", "STOPCAP", "CAP_OFF"], false)) {
-      log("[极氪签到] 抓取已关闭（CAPOFF=1 / 「停止抓取」开关已打开），跳过本次抓取");
-      finish();
-      return;
-    }
     var rawHeaders = ($request && $request.headers) || {};
     var lower = {};
     for (var hk in rawHeaders) {
@@ -333,8 +336,8 @@ var ZEEKR_DEFAULT_CONFIG = {
       lower[String(hk).toLowerCase()] = rawHeaders[hk];
     }
     var auth = lower["authorization"] || lower["Authorization"] || "";
-    var capDebug = zeekrReadFlag(env, ["CAPDEBUG"], false);
-    var showTokFlag = zeekrReadFlag(env, ["CAPSHOW"], true);
+    var capDebug = envFlag("CAPDEBUG", false);
+    var showTokFlag = envFlag("CAPSHOW", true);
     if (capDebug) {
       var u = String(($request && $request.url) || "");
       notify(
@@ -381,30 +384,18 @@ var ZEEKR_DEFAULT_CONFIG = {
           (stored ? "（已存 ✓）" : "（⚠️ 存储写入失败）") +
           (ruleName ? " 规则:" + ruleName : "")
       );
-      // 通知策略：只有 Token 变化（或存储里本来没有）才通知，且 60 秒内最多一条 ——
-      // 否则开一次 App 会被命中的每条请求刷出几十条通知
-      var changed = prev !== auth;
-      var lastNote = parseInt(storeRead(ZEEKR_NOTIFY_KEY) || "0", 10) || 0;
-      var quiet = Date.now() - lastNote < ZEEKR_NOTIFY_GAP_MS;
-      var body =
-        tip +
-        "\n" +
-        (stored
-          ? changed
-            ? "已存入客户端持久化存储 ✓，定时任务会自动使用"
-            : "和上次抓到的一样，已存着；定时任务会自动使用"
-          : "⚠️ 存储写入失败：定时任务无法自动使用，请改用参数手填 TOKEN") +
-        (ruleName ? "\n触发规则：" + ruleName : "") +
-        "\n脚本 v" + ZEEKR_PORT_VERSION;
-      if (showTokFlag) {
-        body += "\n\n青龙等无法自动抓取的平台，把这行复制过去当 Token：\n" + auth;
-        log("[极氪签到] 🔐 可复制给青龙的 Token: " + auth);
-      }
-      if ((changed || !stored) && !quiet) {
-        storeWrite(String(Date.now()), ZEEKR_NOTIFY_KEY);
-        notify("✅ 极氪 Token 已保存", body);
-      } else {
-        log("[极氪签到] 🔐 已抓到 Token（和存储里相同，不重复通知）");
+      if (prev !== auth || capDebug) {
+        var body =
+          tip +
+          "\n" +
+          (stored ? "已存入客户端持久化存储 ✓，定时任务会自动使用" : "⚠️ 存储写入失败：定时任务无法自动使用，请改用参数手填 TOKEN") +
+          (ruleName ? "\n触发规则：" + ruleName : "");
+        if (showTokFlag) {
+          body +=
+            "\n\n青龙等无法自动抓取的平台，把这行复制过去当 Token：\n" + auth;
+          log("[极氪签到] 🔐 可复制给青龙的 Token: " + auth);
+        }
+        notify("✅ 极氪 Token 已自动保存", body);
       }
     } else {
       log("[极氪签到] ⚠️ 这条请求没有 Authorization 头，未抓取");
@@ -428,7 +419,6 @@ var ZEEKR_DEFAULT_CONFIG = {
   var RT = {
     platform: platform,
     env: env,
-    storeProbe: storeRead,
     http: http,
     notify: notify,
     log: log,

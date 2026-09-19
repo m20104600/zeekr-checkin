@@ -18,13 +18,6 @@
 #
 # 场次：00:01 全流程 → 00:10 只领取；08:10 → 08:20；21:30 → 21:40。
 # 想一次跑完（约 3~5 分钟）就在 env 里加 ZEEKR_POLL: "1" 并把 timeout 提到 600。
-#
-# 更新模块：Egern 模块默认缓存 24 小时。改过之后「删掉模块 → 用上面的 URL 重新添加」
-# 最省事；模块里每条脚本都带 update_interval: 3600（1 小时自动刷新）。
-# 判断手机上跑的是不是最新脚本：看抓取通知 / 任务通知最后一行的「脚本 vX.Y.Z」。
-#
-# ⚠️ 如果你在模块设置里看到 `ZEEKR_CAPON` 这个环境变量：那是**旧版残留**，
-#    现在的脚本完全不读它（只认「停止抓取 ZEEKR_CAPOFF」）。删掉它或留着都行。
 # ══════════════════════════════════════════════════════════════════════
 name: "极氪签到"
 description: "极氪 App 每日自动签到 / 步数 / 阅读文章 / 每周点赞 / 领取碎片·能量球·极值"
@@ -32,43 +25,14 @@ author: "m20104600"
 homepage: "https://github.com/m20104600/zeekr-checkin"
 icon: "car.fill"
 
-# 模块设置里可以直接编辑下面这些参数（MODE / TAG 是每条任务各自的，见下面 scriptings）
 env_schema:
   ZEEKR_TOKEN:
     name: "极氪 Token"
     description: "可留空：开着 MITM 打开一次极氪 App 就会自动抓取并存起来"
-  ZEEKR_CAPOFF:
-    name: "停止抓取"
-    description: "抓过一次之后打开这个开关，就不会每次开极氪 App 都去抓取/写存储/弹通知（Token 照常可用）"
-    options: ["false", "true"]
-    default_value: "false"
   ZEEKR_CAPDEBUG:
     name: "抓取调试"
     description: "打开后，每条命中的抓取请求都会弹通知（用来确认规则是否生效），排查完记得关掉"
     options: ["false", "true"]
-    default_value: "false"
-  ZEEKR_CAPSHOW:
-    name: "通知里显示完整 Token"
-    description: "关掉后通知只显示账号和有效期（Token 仍会存进存储）；要复制给青龙时再打开"
-    options: ["true", "false"]
-    default_value: "true"
-  ZEEKR_POLL:
-    name: "长轮询领取（POLL）"
-    description: "1 = 脚本自己轮询到领光（单次 3~5 分钟，timeout 要 ≥ 420）；0 = 快跑 + 靠补领任务收尾"
-    options: ["0", "1"]
-    default_value: "0"
-  ZEEKR_STEPS:
-    name: "上报步数"
-    description: "留空 = 随机 8000~12000；填 off 跳过步数上报"
-    default_value: "10000"
-  ZEEKR_APPVER:
-    name: "App 版本号"
-    description: "留空 = 自动查 iTunes；查询失败或想固定版本时填，例如 4.9.33"
-  ZEEKR_NOTIFY:
-    name: "任务通知"
-    description: "关掉后定时任务不再发通知（抓取通知不受影响）"
-    options: ["true", "false"]
-    default_value: "true"
 
 # 需要 MITM 才能抓到 HTTPS 请求里的 Token（启用模块后会合并进主配置）
 mitm:
@@ -82,7 +46,6 @@ scriptings:
       # 默认匹配整个 api-gw-toc 域名（App 任何一条请求都会带 Authorization，最稳）
       match: '^https://api-gw-toc\.zeekrlife\.com/'
       script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
-      update_interval: 3600
       timeout: 20
       # 窄版（开销更小；新版 App 不一定发这个请求）：'^https://api-gw-toc\.zeekrlife\.com/zeekrlife-app-user/v\d/user/info/query'
 
@@ -92,23 +55,12 @@ scriptings:
       name: "极氪抓Token(响应阶段兜底)"
       match: '^https://api-gw-toc\.zeekrlife\.com/'
       script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
-      update_interval: 3600
       timeout: 20
 
-  # 手动自检（Egern「脚本」里点一下就跑）：
-  #   ① 参数自检 = 列出客户端实际传进来的参数 + 存储里有没有 Token（排查神器）
-  #   ② Token 自检 = 真跑一次领取，能跑到「🏁 本次领取」说明抓存的 Token 有效
+  # 手动自检：在 Egern「脚本」里点一下就跑 —— 能跑到「本次领取」说明抓存的 Token 有效
   - generic:
-      name: "① 极氪参数自检"
+      name: "极氪Token自检（手动跑一次）"
       script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
-      update_interval: 3600
-      timeout: 120
-      env:
-        ZEEKR_MODE: "selfcheck"
-  - generic:
-      name: "② 极氪Token自检"
-      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
-      update_interval: 3600
       timeout: 120
       env:
         ZEEKR_MODE: "claim"
@@ -119,7 +71,6 @@ scriptings:
       name: "极氪签到·凌晨场"
       cron: "1 0 * * *"
       script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
-      update_interval: 3600
       timeout: 120
       env:
         ZEEKR_MODE: "all"
@@ -128,7 +79,6 @@ scriptings:
       name: "极氪签到·凌晨补领"
       cron: "10 0 * * *"
       script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
-      update_interval: 3600
       timeout: 120
       env:
         ZEEKR_MODE: "claim"
@@ -137,7 +87,6 @@ scriptings:
       name: "极氪签到·早间场"
       cron: "10 8 * * *"
       script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
-      update_interval: 3600
       timeout: 120
       env:
         ZEEKR_MODE: "all"
@@ -146,7 +95,6 @@ scriptings:
       name: "极氪签到·早间补领"
       cron: "20 8 * * *"
       script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
-      update_interval: 3600
       timeout: 120
       env:
         ZEEKR_MODE: "claim"
@@ -155,7 +103,6 @@ scriptings:
       name: "极氪签到·晚间场"
       cron: "30 21 * * *"
       script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
-      update_interval: 3600
       timeout: 120
       env:
         ZEEKR_MODE: "all"
@@ -164,7 +111,6 @@ scriptings:
       name: "极氪签到·晚间补领"
       cron: "40 21 * * *"
       script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
-      update_interval: 3600
       timeout: 120
       env:
         ZEEKR_MODE: "claim"

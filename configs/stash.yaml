@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════════════════════════════
 # 极氪签到 · Stash（存成 xxx.stoverride 当覆写用，或把各段并进配置）
 # 脚本地址：https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js   （Egern 用 zeekr.egern.js）
-# 国内更快的镜像：https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist/zeekr.js   （整组镜像地址见 README「脚本地址」一节）
+# 国内更快的镜像：https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist
 #
 # 两种拿 Token 的方式（任选）：
 #   A. 自动抓（推荐）：配好下面的抓取规则，开启 MITM（信任 CA）后打开极氪 App 点一下，
@@ -29,7 +29,6 @@ http:
       type: request
       timeout: 10
     # 窄版（开销更小；新版 App 不一定发这个请求）：match: '^https://api-gw-toc\.zeekrlife\.com/zeekrlife-app-user/v\d/user/info/query'
-    # 抓完一次想停掉：给下面这条补上 argument: ZEEKR_CAPOFF=1（或直接注释掉本段）
     # 若上面不触发，换成响应阶段兜底（type: response）
     # - name: zeekr
     #   match: '^https://api-gw-toc\.zeekrlife\.com/'

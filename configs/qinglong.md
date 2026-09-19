@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════════════════════════════
 # 极氪签到 · 青龙 / 任意 Node.js
 # 脚本地址：https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js   （Egern 用 zeekr.egern.js）
-# 国内更快的镜像：https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist/zeekr.js   （整组镜像地址见 README「脚本地址」一节）
+# 国内更快的镜像：https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist
 #
 # 两种拿 Token 的方式（任选）：
 #   A. 自动抓（推荐）：配好下面的抓取规则，开启 MITM（信任 CA）后打开极氪 App 点一下，

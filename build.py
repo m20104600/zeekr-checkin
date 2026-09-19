@@ -18,9 +18,6 @@ import sys
 import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent
-# 脚本版本：改行为就抬一下，它会出现在抓取通知 / 参数自检 / 任务通知里，
-# 用户一眼就能判断手机上跑的是不是最新脚本（Egern 等客户端会缓存脚本）。
-VERSION = "3.2.0"
 CORE_FILE = ROOT / "parts" / "core.js"
 # 本机开发环境里的密钥来源（可选，仓库被克隆到别处时不存在也能构建）
 LOCAL_SKILL_SRC = pathlib.Path(
@@ -109,11 +106,11 @@ def main() -> int:
         out = tpl.replace("/*__CORE__*/", core.rstrip("\n")).replace(
             "__ZEEKR_SECRET__", secret
         )
-        out = out.replace("__ZEEKR_PORT_VERSION__", VERSION)
+        out = out.replace("__ZEEKR_PORT_VERSION__", "2.0.0")
         path = dist / out_name
         path.write_text(out, encoding="utf-8")
         leak = "__ZEEKR_SECRET__" in out
-        print(f"写入 {path} ({len(out.encode())} 字节 / {len(out)} 字符, {out.count(chr(10)) + 1} 行)"
+        print(f"写入 {path} ({len(out)} 字节, {out.count(chr(10)) + 1} 行)"
               + ("  ⚠️ 占位符未替换！" if leak else ""))
         ok = check(path, esm=out_name.endswith(".egern.js")) and ok
 

@@ -9,7 +9,7 @@
 # ══════════════════════════════════════════════════════════════════════
 # 极氪签到 · Loon 插件 —— 添加方式：Loon → 配置 → 插件 → + → 粘贴本文件 URL
 # 脚本地址：https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js   （Egern 用 zeekr.egern.js）
-# 国内更快的镜像：https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist/zeekr.js   （整组镜像地址见 README「脚本地址」一节）
+# 国内更快的镜像：https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist
 #
 # 两种拿 Token 的方式（任选）：
 #   A. 自动抓（推荐）：配好下面的抓取规则，开启 MITM（信任 CA）后打开极氪 App 点一下，
@@ -29,18 +29,11 @@
 [Argument]
 TOKEN = input,"",tag=极氪 Token,desc=可留空：开着 MITM 打开一次极氪 App 就会自动抓取
 TAG = input,"凌晨场",tag=场次标签,desc=只用于通知标题
-CAPOFF = switch,false,tag=停止抓取,desc=抓过一次之后打开它，之后就不再抓取/写存储/弹通知（Token 照常可用）
-CAPSHOW = switch,true,tag=通知里显示完整Token,desc=关掉只显示账号/有效期（要复制给青龙时再打开）
-CAPDEBUG = switch,false,tag=抓取调试,desc=打开后每条命中的抓取请求都会弹通知（排查用）
-POLL = switch,false,tag=长轮询领取,desc=开启后单次跑 3~5 分钟领光（请把 timeout 提到 600）
-STEPS = input,"10000",tag=上报步数,desc=填 off 跳过步数上报
-NOTIFY = switch,true,tag=任务通知,desc=关掉后定时任务不发通知
-MODE = input,"claim",tag=补领任务模式,desc=只对「补领」那三条 cron 生效（主任务固定 all）
 
 [Script]
 # ① 自动抓 Token（打开极氪 App 时触发，抓到就存进 Loon；通知里会带完整 Token）
 #    默认匹配整个 api-gw-toc 域名，最稳；只想匹配「用户信息」接口就把下面那行换成窄版
-http-request if ${url} ~= /^https:\/\/api-gw-toc\.zeekrlife\.com\// then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", {${CAPOFF}, ${CAPSHOW}, ${CAPDEBUG}}) with tag="极氪抓Token", timeout=20
+http-request if ${url} ~= /^https:\/\/api-gw-toc\.zeekrlife\.com\// then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js") with tag="极氪抓Token", timeout=20
 # 窄版（开销更小；新版 App 不一定发这个请求）：
 # http-request if ${url} ~= /^https:\/\/api-gw-toc\.zeekrlife\.com\/zeekrlife-app-user/v\d/user/info/query/ then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js") with tag="极氪抓Token", timeout=20
 # 若请求阶段不触发，用「响应阶段」兜底（参考脚本 wf021325/qx 用的就是响应阶段；整域名）
@@ -49,15 +42,12 @@ http-request if ${url} ~= /^https:\/\/api-gw-toc\.zeekrlife\.com\// then script(
 # http-request if ${url} ~= /^https:\/\/api-gw-toc\.zeekrlife\.com\// then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", "CAPDEBUG=1") with tag="极氪抓Token(调试)", timeout=20
 
 # ② 三场定时（快跑，单次约 10~25 秒）+ 每场 10 分钟后的「只领取」补领
-cron "1 0 * * *" then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", {${TOKEN}, ${TAG}, ${CAPSHOW}, ${POLL}, ${STEPS}, ${NOTIFY}}) with tag="极氪签到·凌晨场", timeout=60
-cron "10 0 * * *" then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", {${TOKEN}, ${TAG}, ${POLL}, ${NOTIFY}, ${MODE}}) with tag="极氪签到·凌晨补领", timeout=60
-cron "10 8 * * *" then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", {${TOKEN}, ${TAG}, ${CAPSHOW}, ${POLL}, ${STEPS}, ${NOTIFY}}) with tag="极氪签到·早间场", timeout=60
-cron "20 8 * * *" then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", {${TOKEN}, ${TAG}, ${POLL}, ${NOTIFY}, ${MODE}}) with tag="极氪签到·早间补领", timeout=60
-cron "30 21 * * *" then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", {${TOKEN}, ${TAG}, ${CAPSHOW}, ${POLL}, ${STEPS}, ${NOTIFY}}) with tag="极氪签到·晚间场", timeout=60
-cron "40 21 * * *" then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", {${TOKEN}, ${TAG}, ${POLL}, ${NOTIFY}, ${MODE}}) with tag="极氪签到·晚间补领", timeout=60
-
-# ⚠️ 如果你的 Loon 版本不支持插件参数对象写法，就把这 6 行换成 configs/loon-snippet.conf
-#    里的字面写法（功能一样，只是不能在插件界面改参数）。
+cron "1 0 * * *" then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", {${TOKEN}, ${TAG}}) with tag="极氪签到·凌晨场", timeout=60
+cron "10 0 * * *" then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", "MODE=claim&TAG=凌晨场·补领") with tag="极氪签到·凌晨补领", timeout=60
+cron "10 8 * * *" then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", "MODE=all&ZEEKR_TAG=早间场") with tag="极氪签到·早间场", timeout=60
+cron "20 8 * * *" then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", "MODE=claim&TAG=早间场·补领") with tag="极氪签到·早间补领", timeout=60
+cron "30 21 * * *" then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", "MODE=all&ZEEKR_TAG=晚间场") with tag="极氪签到·晚间场", timeout=60
+cron "40 21 * * *" then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", "MODE=claim&TAG=晚间场·补领") with tag="极氪签到·晚间补领", timeout=60
 
 # 说明：
 # * 本文件是 Loon **插件**：开头的 #!name / #!desc 等元数据头必须有，

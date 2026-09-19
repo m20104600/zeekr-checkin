@@ -44,19 +44,18 @@ export default async function (ctx) {
 
   /* ── 持久化存储 + Token 自动抓取 ─────────────────────────────────────── */
   var ZEEKR_STORE_KEY = "zeekr_val";
-  var ZEEKR_NOTIFY_KEY = "zeekr_cap_last"; // 上次弹抓取通知的时间戳（防刷屏用）
 
-  function storeRead(key) {
+  function storeRead() {
     try {
       if (ctx.storage && typeof ctx.storage.get === "function")
-        return ctx.storage.get(key || ZEEKR_STORE_KEY);
+        return ctx.storage.get(ZEEKR_STORE_KEY);
     } catch (e) {}
     return null;
   }
-  function storeWrite(val, key) {
+  function storeWrite(val) {
     try {
       if (ctx.storage && typeof ctx.storage.set === "function") {
-        ctx.storage.set(key || ZEEKR_STORE_KEY, val);
+        ctx.storage.set(ZEEKR_STORE_KEY, val);
         return true;
       }
     } catch (e) {}
@@ -79,14 +78,9 @@ export default async function (ctx) {
 
   // HTTP 脚本上下文（Egern 把请求交给我们时带 ctx.request）：抓 Token 后立刻返回
   if (ctx.request && ctx.request.headers) {
-    // 抓取开关：只认「停止抓取」= ZEEKR_CAPOFF（true）。
-    // 刻意不看 CAPON —— 模块里残留的 CAPON=false 会让抓取永久失效（2026-09-19 踩过）。
-    if (zeekrReadFlag(env, ["CAPOFF", "NOCAP", "CAPSTOP", "STOPCAP", "CAP_OFF"], false)) {
-      log("[极氪签到] 抓取已关闭（ZEEKR_CAPOFF=true），跳过本次抓取");
-      return;
-    }
     var auth = String(headerGet(ctx.request.headers, "authorization") || "");
-    var capDebug = zeekrReadFlag(env, ["CAPDEBUG"], false);
+    var dbg = String(env.ZEEKR_CAPDEBUG || env.CAPDEBUG || "").toLowerCase();
+    var capDebug = !(dbg === "" || dbg === "0" || dbg === "false" || dbg === "off" || dbg === "no");
     if (capDebug) {
       var uu = String((ctx.request && ctx.request.url) || "");
       try {
@@ -116,13 +110,7 @@ export default async function (ctx) {
         // 回读确认（有些运行环境在请求脚本里不允许写存储）
         backEg = zeekrTokenFromStore(storeRead());
       }
-      // 通知策略：① 只有 Token 变化（或存储里本来没有）才通知 —— 避免开一次 App 弹几十条；
-      //           ② 60 秒内最多一条 —— 存储写失败等异常情况下也不会刷屏。
       var storedEg = backEg === auth;
-      var changedEg = prevEg !== auth;
-      var lastNoteEg = parseInt(storeRead(ZEEKR_NOTIFY_KEY) || "0", 10) || 0;
-      var quietEg = Date.now() - lastNoteEg < ZEEKR_NOTIFY_GAP_MS;
-      var showTokEg = zeekrReadFlag(env, ["CAPSHOW"], true);
       var ruleNameEg = (ctx && ctx.script && ctx.script.name) || "";
       var tiEg = zeekrParseToken(auth);
       var tipEg =
@@ -139,29 +127,20 @@ export default async function (ctx) {
           (storedEg ? "（已存 ✓）" : "（⚠️ 存储写入失败）") +
           (ruleNameEg ? " 规则:" + ruleNameEg : "")
       );
-      var bodyEg =
-        tipEg +
-        "\n" +
-        (storedEg
-          ? changedEg
+      if (prevEg !== auth || capDebug) {
+        var bodyEg =
+          tipEg +
+          "\n" +
+          (storedEg
             ? "已存入客户端持久化存储 ✓，定时任务会自动使用"
-            : "和上次抓到的一样，已存着；定时任务会自动使用"
-          : "⚠️ 存储写入失败：定时任务无法自动使用，请改用模块参数手填 ZEEKR_TOKEN") +
-        (ruleNameEg ? "\n触发规则：" + ruleNameEg : "") +
-        "\n脚本 v" + ZEEKR_PORT_VERSION;
-      if (showTokEg) {
-        bodyEg += "\n\n青龙等抓不了的平台，把这行复制过去当 Token：\n" + auth;
+            : "⚠️ 存储写入失败：定时任务无法自动使用，请改用模块参数手填 ZEEKR_TOKEN") +
+          (ruleNameEg ? "\n触发规则：" + ruleNameEg : "") +
+          "\n\n青龙等无法自动抓取的平台，把这行复制过去当 Token：\n" +
+          auth;
         log("[极氪签到] 🔐 可复制给青龙的 Token: " + auth);
-      }
-      if ((changedEg || !storedEg) && !quietEg) {
-        storeWrite(String(Date.now()), ZEEKR_NOTIFY_KEY);
         try {
-          ctx.notify({ title: "✅ 极氪 Token 已保存", body: bodyEg });
-        } catch (eNote) {
-          log("[极氪签到] ⚠️ 通知失败: " + eNote);
-        }
-      } else {
-        log("[极氪签到] 🔐 已抓到 Token（和存储里相同，不重复通知）");
+          ctx.notify({ title: "✅ 极氪 Token 已自动保存", body: bodyEg });
+        } catch (e) {}
       }
     } else {
       log("[极氪签到] ⚠️ 这条请求没有 Authorization 头，未抓取");
@@ -218,7 +197,6 @@ export default async function (ctx) {
   var RT = {
     platform: "Egern",
     env: env,
-    storeProbe: storeRead,
     http: http,
     notify: notify,
     log: log,

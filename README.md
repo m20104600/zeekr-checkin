@@ -17,75 +17,6 @@
 
 ---
 
-## 脚本地址（复制即用）
-
-每个地址都是**一行纯链接**，长按/双击选中即可整段复制。
-
-### Quantumult X / Loon / Stash / Surge / Node.js —— 定时任务脚本
-
-```
-https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js
-```
-
-### Egern —— 定时任务脚本
-
-```
-https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js
-```
-
-### 青龙 / 任意 Node.js ≥ 14 —— 任务脚本
-
-```
-https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.qinglong.js
-```
-
-青龙容器里也可以一条命令直接装（会下载脚本到 `scripts/` 并建好定时任务）：
-
-```bash
-ql raw https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.qinglong.js
-```
-
-### 配置 / 插件 / 模块地址（直接粘贴到 App 里）
-
-Loon 插件（Loon → 配置 → 插件 → 右上角 `+` → 粘贴）：
-
-```
-https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/configs/loon.plugin
-```
-
-Egern 模块（Egern → 模块 → 右上角 `+` → 粘贴）：
-
-```
-https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/configs/egern.yaml
-```
-
-Stash 覆写（Stash → 覆写 → 右上角 `+` → 粘贴）：
-
-```
-https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/configs/stash.yaml
-```
-
-Quantumult X 没有远程配置片段，需要把
-[`configs/qx.conf`](configs/qx.conf) 里的 `[mitm]` / `[rewrite_local]` / `[task_local]` 三段复制进自己的配置。
-
-### 国内镜像（jsDelivr，GitHub 打不开时用）
-
-把 `raw.githubusercontent.com/m20104600/zeekr-checkin/main`
-换成 `cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main` 即可，例如：
-
-```
-https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist/zeekr.js
-https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist/zeekr.egern.js
-https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist/zeekr.qinglong.js
-https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/configs/loon.plugin
-https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/configs/egern.yaml
-https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/configs/stash.yaml
-```
-
-> jsDelivr 有缓存（改完脚本可能要等几分钟才刷新），排查问题时优先用 raw 地址。
-
----
-
 ## 特性
 
 - **零依赖纯 JS**：SHA1 签名、base64（步数 secret 要套 5 层）都是手写实现，
@@ -183,7 +114,6 @@ https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/configs/egern.yam
 | `LIKE` | `0` | `1` = 强制点一次赞（排查用） |
 | `NOTIFY` | `1` | `0` = 不发通知 |
 | `CAPSHOW` | `1` | 抓到 Token 时通知里显示完整 Token（复制到青龙用）；`0` 只显示账号/有效期 |
-| `CAPON` | `1` | 抓取开关：抓过一次就关掉（`0`），之后打开极氪 App 不再抓取/写存储/弹通知 |
 | `VERBOSE` | `0` | `1` = 输出逐轮明细 |
 
 示例：
@@ -280,26 +210,6 @@ python3 tests/e2e-qinglong.py # 22 项：真跑青龙脚本（多账号、zeekr_
 
 ## 更新记录
 
-- **2026-09-19（第四轮）**：修掉两个由我引入的问题 ——
-  ① **刷屏**：抓取通知改成「同一个 Token 只报一次 + 60 秒内最多一条」，
-  （上一版"抓到就通知"会让开一次 App 弹出几十条：App 一场会话要发几十个请求）；
-  ② **停止抓取开关**：读取的键名放宽（`CAPOFF` / `NOCAP` / `CAPSTOP` / `STOPCAP` / `CAP_OFF` 都认），
-  并说明**改完模块参数要把 Egern 的开关断开重连一次**（或切一下模块启用状态），
-  让模块配置重新加载，否则仍是改动前的参数。
-
-- **2026-09-19（第三轮）**：**把抓取逻辑简化回「能抓到的那一版」** —— 只多一个开关：
-  开关关（默认）= 抓到就存 + 弹通知（含完整 Token）；开关开 = 不抓、不通知。
-  去掉了中途加的「通知节流 / 每天平安播报」等复杂逻辑（它们是"抓到了却没通知"的元凶）。
-  另加：① 抓取通知与参数自检末尾带「脚本 vX.Y.Z」，一眼看出客户端跑的是不是最新脚本
-  （Egern 默认缓存脚本 24 小时）；② 参数自检会把旧版残留的 `ZEEKR_CAPON` 标为已废弃，
-  并说明「模块里的 Token 那栏留空即可，抓到的 Token 存在持久化存储里」；
-  ③ 自检无条件发通知（不再受「任务通知」开关影响）。
-
-- **2026-09-19（第二轮）**：README 新增 **「脚本地址（复制即用）」** 集中区 ——
-  每个客户端一行纯链接（QX/Loon/Stash/Surge/Node、Egern、青龙、Loon 插件、Egern 模块、Stash 覆写），
-  外加 jsDelivr 国内镜像整组地址和青龙的 `ql raw` 一条命令安装；
-  新增 `tests/links-check.py` 校验 README/configs 里所有地址真的能 200 且与本地成品逐字节一致。
-
 - **2026-09-19**：修正配置文件的两个致命问题 ——
   ① Loon 配置改成**真正的插件**（`configs/loon.plugin`，首行 `#!name`，带 `[Argument]` 参数 UI），
   之前的片段式写法 Loon 加载不出来；
@@ -307,58 +217,3 @@ python3 tests/e2e-qinglong.py # 22 项：真跑青龙脚本（多账号、zeekr_
   之前的双引号 `\d` 会让 Egern 直接报 YAML 解析错误；
   ③ 修正所有客户端**抓取正则多转义一层**的问题（原来 `\.` 写成 `\\.`，等于匹配"反斜杠+任意字符"，一条都命中不了），
   并新增 `tests/configs-check.py` 做回归（校验 YAML 可解析 + 每条正则真能匹配目标 URL + 插件/模块格式）。
-
-### 「停止抓取」开关不生效 / 还看到 ZEEKR_CAPON？
-
-这两个现象都是**客户端还在跑缓存里的旧脚本**：
-
-- Egern 模块默认缓存 **24 小时**；旧版模块里的脚本条目**没有** `update_interval`，
-  所以脚本也是一直用旧的。旧脚本不认识 `CAPOFF`，你打开「停止抓取」自然没反应。
-- `ZEEKR_CAPON` 是**旧版模块**（v2）留在你模块设置里的环境变量。现在的脚本
-  **完全不读它**，只认「停止抓取 `ZEEKR_CAPOFF`」。删掉它或留着都无害。
-
-怎么判断自己跑的是哪一版？看**抓取通知 / 任务通知的最后一行**：
-
-```
-— 脚本 v3.0.0 · Egern
-```
-
-- 有这行且是 `v3.1.0`（或更新）→ 最新，抓取开关一定生效
-- 没有这行，或版本更旧 → 还在跑旧脚本，删掉模块重新添加
-
-强制更新：**Egern 模块 → 删掉 → 用 URL 重新添加**（不要只禁用再启用）。
-模块装好后，里面每条脚本都带 `update_interval: 3600`，之后 1 小时内自动刷新，
-不会再出现「修好了但手机跑的还是旧版」。
-
-另外：**改完模块参数（比如打开「停止抓取」）之后，把 Egern 的开关断开再连一次**
-（或切一下模块的启用状态），让模块配置重新加载 —— 否则脚本拿到的还是改动前的参数，
-看起来就像"开关没生效"。
-
-### 抓完之后怎么关掉抓取（重要）
-
-抓一次 Token 能用半年左右，之后每次打开极氪 App 都会命中抓取规则（写一次存储 + 弹一次通知）。
-不想再被抓：打开 **「停止抓取」（`CAPOFF`）**：
-
-| 客户端 | 怎么停 |
-|---|---|
-| Egern | 模块设置 → 「停止抓取」→ 打开 |
-| Loon | 插件设置 → 「停止抓取」→ 打开；或把抓取那行注释掉 |
-| QX | 「重写」列表里把这条规则关掉；或给 URL 加 `#CAPOFF=1` |
-| Stash | 那条 `http.script` 补 `argument: ZEEKR_CAPOFF=1`，或注释掉整段 |
-| 青龙 | 本来就没有抓取 |
-
-停掉后定时任务照旧用已存的 Token；等 Token 过期了再打开抓一次即可。
-
-> 历史说明：早期版本用的是「抓取开关 `CAPON`」，客户端模块里一旦残留 `CAPON=false`
-> 会让抓取永久失效。现在**只认 `CAPOFF`**，`CAPON` 已彻底不参与判断（残留值无影响）。
-
-### 出问题先跑「参数自检」
-
-Egern 模块里带了一个手动脚本 **「① 极氪参数自检」**（Loon 是 `generic` 的「极氪Token自检」）。
-在客户端里点一下，它会直接告诉你：
-
-- 客户端实际传进来的**全部参数**（键、值、类型；Token 只报长度不显示）
-- 持久化存储 `zeekr_val` 里**有没有 Token**、是谁的账号、还剩多少天
-- 抓取开关 / 通知显示 / 抓取调试 三个开关的**当前状态**
-
-排查任何"抓不到 / 用不上 Token"的问题，先跑它，比猜快得多。

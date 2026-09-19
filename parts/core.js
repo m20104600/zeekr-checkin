@@ -440,14 +440,42 @@ function zeekrHeaders(token, appVersion, deviceId) {
   };
 }
 
+/**
+ * 发一次请求（带网络重试）。
+ * 「fetch failed」这类是网络层错误（连接被 RST / DNS / TLS 抖动），
+ * 这个域名是 GSLB 多 IP 池，偶发单连接失败很常见 —— 直接重试就能救回来。
+ * 签到 / 步数 / 领取本身都是幂等的，重试安全。
+ */
 async function zeekrRequest(ctx, path, method, body) {
-  var res = await ctx.RT.http({
-    method: method,
-    url: ZEEKR_BASE + path,
-    headers: zeekrHeaders(ctx.token, ctx.appVersion, ctx.deviceId),
-    body: method === "GET" ? null : JSON.stringify(body === undefined ? {} : body),
-    timeoutMs: 20000,
-  });
+  var attempts = 3;
+  var lastErr = null;
+  var res = null;
+  for (var attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      res = await ctx.RT.http({
+        method: method,
+        url: ZEEKR_BASE + path,
+        headers: zeekrHeaders(ctx.token, ctx.appVersion, ctx.deviceId),
+        body: method === "GET" ? null : JSON.stringify(body === undefined ? {} : body),
+        timeoutMs: 20000,
+      });
+      lastErr = null;
+      break;
+    } catch (e) {
+      lastErr = e;
+      ctx.vlog(
+        "网络请求失败（第 " + attempt + "/" + attempts + " 次）: " +
+          ((e && e.message) || e) +
+          " —— " + path
+      );
+      if (attempt < attempts) await zeekrSleep(1200 + attempt * 900);
+    }
+  }
+  if (lastErr) {
+    throw new Error(
+      "网络请求失败（已重试 " + attempts + " 次）: " + ((lastErr && lastErr.message) || lastErr) + " —— " + path
+    );
+  }
   var text = res && res.body !== undefined && res.body !== null ? res.body : "";
   if (typeof text !== "string") {
     try {

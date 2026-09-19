@@ -247,6 +247,46 @@ const has = (logs, s) => logs.some((l) => l.indexOf(s) >= 0);
     check("日志说明抓取已关闭", has(r.logs, "抓取已关闭"));
   }
 
+  console.log("\n== I. 网络抖动：第一次请求失败应自动重试 ==");
+  {
+    const logs = [];
+    const notifies = [];
+    let calls = 0;
+    const sandbox = {
+      console: { log: (m) => logs.push(String(m)), error: (m) => logs.push("ERR " + String(m)) },
+      setTimeout,
+      clearTimeout,
+    };
+    sandbox.globalThis = sandbox;
+    // 故意让第一个 API 请求失败一次，之后放行
+    sandbox.$httpClient = {
+      get: (req, cb) => cb("fetch failed (模拟抖动)", null, null),
+      post: (req, cb) => {
+        if (req.url.indexOf("zeekrlife") >= 0) {
+          calls++;
+          if (calls === 1) return cb("fetch failed (模拟抖动)", null, null);
+        }
+        const init = { method: "POST", headers: req.headers || {}, body: req.body };
+        fetch(req.url, init).then(
+          (r) => r.text().then((t) => cb(null, { status: r.status, headers: {} }, t)),
+          (e) => cb(String((e && e.message) || e), null, null)
+        );
+      },
+    };
+    sandbox.$persistentStore = { read: () => null, write: () => true };
+    sandbox.$loon = "iPhone15,2 18.0 3.5.1(983)";
+    sandbox.$argument = "MODE=claim&APPVER=4.9.33&ZEEKR_VERBOSE=1&" + TKEY + "=" + TOKEN;
+    sandbox.$notify = (t, x, b) => notifies.push({ title: t, body: b });
+    sandbox.$notification = { post: (t, x, b) => notifies.push({ title: t, body: b }) };
+    sandbox.$done = () => {};
+    vm.createContext(sandbox);
+    vm.runInContext(CODE, sandbox, { filename: "zeekr.js" });
+    await new Promise((r) => setTimeout(r, 25000));
+    check("失败那一次被重试掉了（没有整体失败）", !logs.some((l) => l.indexOf("执行异常") >= 0));
+    check("日志里有重试记录", logs.some((l) => l.indexOf("网络请求失败（第 1/3 次）") >= 0));
+    check("重试后仍然拿到了可领取结果", logs.some((l) => l.indexOf("本次领取") >= 0 || l.indexOf("可领取") >= 0));
+  }
+
   console.log("\n== E. rewrite 抓取 Token（Quantumult X，$prefs）==");
   {
     const r = await runClassic({

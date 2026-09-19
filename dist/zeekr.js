@@ -940,7 +940,7 @@ async function zeekrMain(RT) {
     title = "❌ 极氪签到失败" + (cfg.tag ? "（" + cfg.tag + "）" : "");
     ctx.out(
       RT.tokenHint ||
-        "❌ 缺少 Token：请在客户端参数的 TOKEN/ZEEKR_TOKEN 里填 Bearer Token"
+        "❌ 缺少 Token：这台设备上还没有可用的 Bearer Token（各客户端的获取方式见 README）"
     );
     send();
     return { ok: false, lines: lines };
@@ -1446,6 +1446,8 @@ async function zeekrMain(RT) {
 
   var RT = {
     platform: platform,
+    tokenHint:
+      "❌ 缺少 Token：请在客户端参数的 TOKEN/ZEEKR_TOKEN 里填 Bearer Token（或先打开极氪 App 抓一次）",
     env: env,
     http: http,
     notify: notify,

@@ -932,7 +932,7 @@ async function zeekrMain(RT) {
     title = "❌ 极氪签到失败" + (cfg.tag ? "（" + cfg.tag + "）" : "");
     ctx.out(
       RT.tokenHint ||
-        "❌ 缺少 Token：请在客户端参数的 TOKEN/ZEEKR_TOKEN 里填 Bearer Token"
+        "❌ 缺少 Token：这台设备上还没有可用的 Bearer Token（各客户端的获取方式见 README）"
     );
     send();
     return { ok: false, lines: lines };
@@ -1269,6 +1269,8 @@ function zeekrQLBaseEnv() {
     else env.ZEEKR_VAL = vals[i];
     var RT = {
       platform: "青龙",
+      tokenHint:
+        "❌ 缺少 Token：请在青龙环境变量里配置 ZEEKR_TOKEN（手机抓一次，把通知里那行 Bearer … 复制过来）",
       env: env,
       http: zeekrQLHttp,
       notify: null, // 多个账号合并成一条通知，最后统一发

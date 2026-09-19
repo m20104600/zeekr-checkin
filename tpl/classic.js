@@ -418,6 +418,8 @@ var ZEEKR_DEFAULT_CONFIG = {
 
   var RT = {
     platform: platform,
+    tokenHint:
+      "❌ 缺少 Token：请在客户端参数的 TOKEN/ZEEKR_TOKEN 里填 Bearer Token（或先打开极氪 App 抓一次）",
     env: env,
     http: http,
     notify: notify,

@@ -241,6 +241,8 @@ function zeekrQLBaseEnv() {
     else env.ZEEKR_VAL = vals[i];
     var RT = {
       platform: "青龙",
+      tokenHint:
+        "❌ 缺少 Token：请在青龙环境变量里配置 ZEEKR_TOKEN（手机抓一次，把通知里那行 Bearer … 复制过来）",
       env: env,
       http: zeekrQLHttp,
       notify: null, // 多个账号合并成一条通知，最后统一发

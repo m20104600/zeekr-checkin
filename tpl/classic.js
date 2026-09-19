@@ -305,19 +305,6 @@ var ZEEKR_DEFAULT_CONFIG = {
     }
     return false;
   }
-  /** 读一个布尔型参数（大小写不敏感、前缀 ZEEKR_ 可有可无） */
-  function envFlag(name, def) {
-    for (var k in env) {
-      if (!Object.prototype.hasOwnProperty.call(env, k)) continue;
-      if (zeekrNormKey(k) !== name) continue;
-      var v = String(env[k]).trim().toLowerCase();
-      if (v === "" || v === "0" || v === "false" || v === "off" || v === "no") return false;
-      // 插件参数没被替换（如 ${CAPDEBUG}）时按默认值处理，别把占位符当成 true
-      if (v.charAt(0) === "$" || v.charAt(0) === "<") return def;
-      return true;
-    }
-    return def;
-  }
 
   var scriptType = "";
   try {
@@ -331,8 +318,8 @@ var ZEEKR_DEFAULT_CONFIG = {
   if (inRewrite) {
     // 抓取开关（CAPON=0/false/off 时不抓）：抓过一次就能关掉，免得每次开 App 都写存储/弹通知。
     // 客户端关法：Egern 模块设置 / Loon 插件参数 / QX 的 # 参数 / Stash 的 argument。
-    if (!envFlag("CAPON", true)) {
-      log("[极氪签到] 抓取已关闭（CAPON=0），跳过本次抓取");
+    if (zeekrReadFlag(env, ["CAPOFF", "NOCAP"], false)) {
+      log("[极氪签到] 抓取已关闭（CAPOFF=1 / 「停止抓取」开关已打开），跳过本次抓取");
       finish();
       return;
     }
@@ -343,8 +330,8 @@ var ZEEKR_DEFAULT_CONFIG = {
       lower[String(hk).toLowerCase()] = rawHeaders[hk];
     }
     var auth = lower["authorization"] || lower["Authorization"] || "";
-    var capDebug = envFlag("CAPDEBUG", false);
-    var showTokFlag = envFlag("CAPSHOW", true);
+    var capDebug = zeekrReadFlag(env, ["CAPDEBUG"], false);
+    var showTokFlag = zeekrReadFlag(env, ["CAPSHOW"], true);
     if (capDebug) {
       var u = String(($request && $request.url) || "");
       notify(
@@ -426,6 +413,7 @@ var ZEEKR_DEFAULT_CONFIG = {
   var RT = {
     platform: platform,
     env: env,
+    storeProbe: storeRead,
     http: http,
     notify: notify,
     log: log,

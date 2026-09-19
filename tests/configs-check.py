@@ -127,7 +127,10 @@ try:
                     bad_entry.append(body)
     check("egern.yaml 每个 scriptings 条目都是单键映射",
           not bad_entry and len(kinds) >= 7, f"kinds={kinds} bad={len(bad_entry)}")
-    check("egern.yaml 里有 1 个手动自检脚本（generic）", kinds.count("generic") == 1, kinds)
+    check("egern.yaml 里有 2 个手动自检脚本（参数自检 + Token自检）", kinds.count("generic") == 2, kinds)
+    check("egern.yaml 里有响应阶段兜底规则", kinds.count("http_response") == 1, kinds)
+    check("egern.yaml 的 scriptings 都设了 update_interval（改动能自动生效）",
+          read("egern.yaml").count("update_interval:") == len(kinds), read("egern.yaml").count("update_interval:"))
     check("egern.yaml 含 1 条 http_request + 6 条 schedule",
           kinds.count("http_request") == 1 and kinds.count("schedule") == 6, kinds)
     check("egern.yaml 的 schedule 都带 env（MODE/TAG）",
@@ -157,13 +160,13 @@ check("loon.plugin 声明了 TOKEN 参数", re.search(r"^TOKEN\s*=", loon, re.M)
 check("loon.plugin 的 Mitm 域名正确", "hostname = api-gw-toc.zeekrlife.com" in loon)
 
 print("\n== 4b. 可编辑参数 & 抓取开关 ==")
-check("Egern 模块设置了「抓取开关」字段", "抓取开关" in read("egern.yaml") and "ZEEKR_CAPON" in read("egern.yaml"))
+check("Egern 模块设置了「停止抓取」字段", "停止抓取" in read("egern.yaml") and "ZEEKR_CAPOFF" in read("egern.yaml"))
 for k in ("ZEEKR_TOKEN", "ZEEKR_CAPSHOW", "ZEEKR_POLL", "ZEEKR_STEPS", "ZEEKR_NOTIFY"):
     check(f"Egern env_schema 暴露了 {k}", k in read("egern.yaml"))
-for k in ("CAPON", "CAPSHOW", "CAPDEBUG", "POLL", "STEPS", "NOTIFY"):
+for k in ("CAPOFF", "CAPSHOW", "CAPDEBUG", "POLL", "STEPS", "NOTIFY"):
     check(f"Loon 插件参数里有 {k}", re.search(rf"^{k}\s*=", read("loon.plugin"), re.M) is not None)
 for fn in ("qx.conf", "loon.plugin", "stash.yaml", "egern.yaml"):
-    check(f"{fn} 说明了抓取开关怎么关", "CAPON" in read(fn), fn)
+    check(f"{fn} 说明了抓取开关怎么关", "CAPOFF" in read(fn), fn)
 
 print("\n== 5. 脚本地址 & 敏感信息 ==")
 for fn in ("qx.conf", "loon.plugin", "loon-snippet.conf", "stash.yaml", "egern.yaml"):

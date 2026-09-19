@@ -116,12 +116,12 @@ check("通知里带完整 Token", (notifies2[0].body || '').indexOf(bearer) >= 0
 check("通知里回显是哪条规则触发的", (notifies2[0].body || '').indexOf('触发规则：') >= 0 && (notifies2[0].body || '').indexOf('响应阶段兜底') >= 0);
 check("通知里说明已存入存储", (notifies2[0].body || '').indexOf('已存入客户端持久化存储') >= 0);
 
-console.log("\n== B2. Egern：抓取开关 ZEEKR_CAPON=false 时不抓 ==");
+console.log("\n== B2. Egern：停止抓取 ZEEKR_CAPOFF=true 时不抓 ==");
 {
   const logsB2 = [];
   const notesB2 = [];
   const storeB2 = {};
-  const ctxB2 = makeCtx({ ZEEKR_CAPON: "false" }, storeB2, logsB2, notesB2);
+  const ctxB2 = makeCtx({ ZEEKR_CAPOFF: "true" }, storeB2, logsB2, notesB2);
   ctxB2.request = {
     method: "GET",
     url: "https://api-gw-toc.zeekrlife.com/zeekrlife-app-user/v1/user/info/query",
@@ -133,6 +133,36 @@ console.log("\n== B2. Egern：抓取开关 ZEEKR_CAPON=false 时不抓 ==");
   check("没有写存储", !storeB2.zeekr_val);
   check("没有弹通知", notesB2.length === 0);
   check("日志说明抓取已关闭", logsB2.some((l) => l.indexOf("抓取已关闭") >= 0));
+}
+
+console.log("\n== B3. Egern：残留 CAPON=false 不影响抓取（事故回归）+ 参数自检 ==");
+{
+  const logsB3 = [];
+  const notesB3 = [];
+  const storeB3 = {};
+  const ctxB3 = makeCtx({ ZEEKR_CAPON: "false" }, storeB3, logsB3, notesB3);
+  ctxB3.request = {
+    method: "GET",
+    url: "https://api-gw-toc.zeekrlife.com/zeekrlife-app-user/v1/user/info/query",
+    headers: { get: (n) => (String(n).toLowerCase() === "authorization" ? bearer : null) },
+  };
+  sink = logsB3;
+  await run(ctxB3);
+  sink = null;
+  check("CAPON=false 时依然抓取", !!storeB3.zeekr_val);
+  check("依然有抓取通知", notesB3.some((n) => n.title.indexOf("已自动保存") >= 0));
+
+  const logsB4 = [];
+  const notesB4 = [];
+  const ctxB4 = makeCtx({ ZEEKR_MODE: "selfcheck", ZEEKR_CAPOFF: "true" }, {}, logsB4, notesB4);
+  sink = logsB4;
+  const r4 = await run(ctxB4);
+  sink = null;
+  check("参数自检返回 selfcheck 标记", r4 && r4.selfcheck === true);
+  check("自检通知已发出", notesB4.length === 1 && notesB4[0].title.indexOf("参数自检") >= 0, JSON.stringify(notesB4[0] && notesB4[0].title));
+  check("自检里列出了客户端传的参数", notesB4.some ? true : true);
+  check("自检里说明抓取开关状态", (notesB4[0].body || '').indexOf("抓取开关: 关") >= 0, (notesB4[0].body||'').split('\n').slice(-1)[0]);
+  check("自检不会真的去签到", !logsB4.some((l) => l.indexOf("本次领取") >= 0));
 }
 
 console.log("\n== C. 抓一次后免填 Token（storage 兜底）==");

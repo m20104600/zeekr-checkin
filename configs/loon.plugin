@@ -29,7 +29,7 @@
 [Argument]
 TOKEN = input,"",tag=极氪 Token,desc=可留空：开着 MITM 打开一次极氪 App 就会自动抓取
 TAG = input,"凌晨场",tag=场次标签,desc=只用于通知标题
-CAPON = switch,true,tag=抓取开关,desc=抓过一次之后关掉，就不会每次打开极氪 App 都抓取/弹通知
+CAPOFF = switch,false,tag=停止抓取,desc=抓过一次之后打开它，之后就不再抓取/写存储/弹通知（Token 照常可用）
 CAPSHOW = switch,true,tag=通知里显示完整Token,desc=关掉只显示账号/有效期（要复制给青龙时再打开）
 CAPDEBUG = switch,false,tag=抓取调试,desc=打开后每条命中的抓取请求都会弹通知（排查用）
 POLL = switch,false,tag=长轮询领取,desc=开启后单次跑 3~5 分钟领光（请把 timeout 提到 600）
@@ -40,7 +40,7 @@ MODE = input,"claim",tag=补领任务模式,desc=只对「补领」那三条 cro
 [Script]
 # ① 自动抓 Token（打开极氪 App 时触发，抓到就存进 Loon；通知里会带完整 Token）
 #    默认匹配整个 api-gw-toc 域名，最稳；只想匹配「用户信息」接口就把下面那行换成窄版
-http-request if ${url} ~= /^https:\/\/api-gw-toc\.zeekrlife\.com\// then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", {${CAPON}, ${CAPSHOW}, ${CAPDEBUG}}) with tag="极氪抓Token", timeout=20
+http-request if ${url} ~= /^https:\/\/api-gw-toc\.zeekrlife\.com\// then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", {${CAPOFF}, ${CAPSHOW}, ${CAPDEBUG}}) with tag="极氪抓Token", timeout=20
 # 窄版（开销更小；新版 App 不一定发这个请求）：
 # http-request if ${url} ~= /^https:\/\/api-gw-toc\.zeekrlife\.com\/zeekrlife-app-user/v\d/user/info/query/ then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js") with tag="极氪抓Token", timeout=20
 # 若请求阶段不触发，用「响应阶段」兜底（参考脚本 wf021325/qx 用的就是响应阶段；整域名）

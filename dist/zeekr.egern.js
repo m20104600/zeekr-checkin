@@ -268,6 +268,35 @@ function zeekrCSTDate(ms) {
 /* ---------------- 参数读取 ---------------- */
 
 /**
+ * 读一个布尔开关（跨客户端都一样）：
+ *   - 大小写不敏感、前缀 ZEEKR_ 可有可无、值能带引号
+ *   - 支持真布尔（有些客户端 env 传的是 boolean 而不是字符串）
+ *   - 只有明确写成 0/false/off/no（或布尔 false）才算"关"
+ *   - 未替换的插件占位符（${X}、<x>）当作"没配"，用默认值
+ */
+function zeekrReadFlag(envMap, names, def) {
+  if (!envMap) return def;
+  var norm = {};
+  for (var k in envMap) {
+    if (!Object.prototype.hasOwnProperty.call(envMap, k)) continue;
+    norm[zeekrNormKey(k)] = envMap[k];
+  }
+  for (var i = 0; i < names.length; i++) {
+    var key = zeekrNormKey(names[i]);
+    if (!Object.prototype.hasOwnProperty.call(norm, key)) continue;
+    var v = norm[key];
+    if (v === true) return true;
+    if (v === false) return false;
+    var t = String(v == null ? "" : v).replace(/^[\s"']+|[\s"']+$/g, "").toLowerCase();
+    if (t === "") continue;
+    if (t === "0" || t === "false" || t === "off" || t === "no") return false;
+    if (t.charAt(0) === "$" || t.charAt(0) === "<") continue;
+    return true;
+  }
+  return def;
+}
+
+/**
  * 清洗 Token：用户到处复制粘贴，常见带单/双引号、首尾空格、零宽字符
  * （零宽空格 U+200B、BOM U+FEFF、双向标记 U+200E/F 等），
  * 青龙环境变量里还经常写 ZEEKR_TOKEN="Bearer ..."，这里统一收拾干净。
@@ -394,7 +423,12 @@ function zeekrLoadConfig(RT) {
   }
   cfg.tokens = toks.length ? toks : [];
   cfg.token = cfg.tokens[0] || "";
-  if (cfg.mode !== "sign" && cfg.mode !== "claim") cfg.mode = "all";
+  if (cfg.mode !== "sign" && cfg.mode !== "claim" && cfg.mode !== "selfcheck")
+    cfg.mode = "all";
+  // 抓取开关：只认 CAPOFF（停止抓取）。刻意不看 CAPON ——
+  // 客户端模块里残留的 CAPON=false 会把抓取永久关掉（2026-09-19 踩过这个坑）。
+  cfg.capOff = zeekrReadFlag(v, ["CAPOFF"], false);
+  cfg.captureEnabled = !cfg.capOff;
   return cfg;
 }
 
@@ -953,6 +987,66 @@ async function zeekrMain(RT) {
     }
   };
 
+  // ── 参数自检：MODE=selfcheck（Egern 的「极氪参数自检」脚本就是这个）──
+  if (cfg.mode === "selfcheck") {
+    var dbgLines = [];
+    dbgLines.push("[极氪签到] 🔎 参数自检 @ " + zeekrNowCST() + " | 客户端: " + RT.platform);
+    var ekeys = [];
+    for (var ek in RT.env || {}) {
+      if (Object.prototype.hasOwnProperty.call(RT.env, ek)) ekeys.push(ek);
+    }
+    ekeys.sort();
+    dbgLines.push("[极氪签到] 客户端传进来的参数（" + ekeys.length + " 个）:");
+    for (var ei = 0; ei < ekeys.length; ei++) {
+      var ekk = ekeys[ei];
+      var evv = RT.env[ekk];
+      var shown = String(evv == null ? "" : evv);
+      if (/token|bearer|auth|cookie/i.test(ekk))
+        shown = shown ? "已配置（" + shown.length + " 字符，不显示）" : "(空)";
+      dbgLines.push("  · " + ekk + " = " + shown + " (" + typeof evv + ")");
+    }
+    var rawStored = null;
+    try {
+      rawStored = RT.storeProbe ? RT.storeProbe() : null;
+    } catch (eSC) {
+      rawStored = null;
+    }
+    var storedTok = zeekrTokenFromStore(rawStored);
+    if (storedTok) {
+      var si = zeekrParseToken(storedTok);
+      dbgLines.push(
+        "[极氪签到] 持久化存储 zeekr_val: 有 Token（账号 " +
+          (si.accountId || "?") +
+          "，剩余 " +
+          si.daysLeft +
+          " 天）"
+      );
+    } else {
+      dbgLines.push(
+        "[极氪签到] 持久化存储 zeekr_val: " +
+          (rawStored ? "有值但解析不出 Token（" + String(rawStored).slice(0, 40) + "…）" : "空（还没抓到过）")
+      );
+    }
+    dbgLines.push(
+      "[极氪签到] 抓取开关: " +
+        (cfg.captureEnabled ? "开（会抓取）" : "关（CAPOFF=1，不抓取）") +
+        " | 通知显示完整Token: " +
+        (zeekrReadFlag(RT.env, ["CAPSHOW"], true) ? "开" : "关") +
+        " | 抓取调试: " +
+        (zeekrReadFlag(RT.env, ["CAPDEBUG"], false) ? "开" : "关")
+    );
+    for (var di = 0; di < dbgLines.length; di++) {
+      lines.push(dbgLines[di]);
+      RT.log(dbgLines[di]);
+    }
+    if (cfg.notify && RT.notify) {
+      try {
+        RT.notify("🔎 极氪签到参数自检", dbgLines.join("\n"));
+      } catch (eSN) {}
+    }
+    return { ok: true, lines: lines, selfcheck: true };
+  }
+
   if (!cfg.token) {
     ctx.ok = false;
     title = "❌ 极氪签到失败" + (cfg.tag ? "（" + cfg.tag + "）" : "");
@@ -1130,15 +1224,14 @@ export default async function (ctx) {
 
   // HTTP 脚本上下文（Egern 把请求交给我们时带 ctx.request）：抓 Token 后立刻返回
   if (ctx.request && ctx.request.headers) {
-    // 抓取开关：ZEEKR_CAPON=false 时不抓（抓一次过就把模块设置里的开关关掉即可）
-    var onVal = String(env.ZEEKR_CAPON || env.CAPON || "").trim().toLowerCase();
-    if (onVal === "0" || onVal === "false" || onVal === "off" || onVal === "no") {
-      log("[极氪签到] 抓取已关闭（ZEEKR_CAPON=false），跳过本次抓取");
+    // 抓取开关：只认「停止抓取」= ZEEKR_CAPOFF（true）。
+    // 刻意不看 CAPON —— 模块里残留的 CAPON=false 会让抓取永久失效（2026-09-19 踩过）。
+    if (zeekrReadFlag(env, ["CAPOFF", "NOCAP"], false)) {
+      log("[极氪签到] 抓取已关闭（ZEEKR_CAPOFF=true），跳过本次抓取");
       return;
     }
     var auth = String(headerGet(ctx.request.headers, "authorization") || "");
-    var dbg = String(env.ZEEKR_CAPDEBUG || env.CAPDEBUG || "").toLowerCase();
-    var capDebug = !(dbg === "" || dbg === "0" || dbg === "false" || dbg === "off" || dbg === "no");
+    var capDebug = zeekrReadFlag(env, ["CAPDEBUG"], false);
     if (capDebug) {
       var uu = String((ctx.request && ctx.request.url) || "");
       try {
@@ -1255,6 +1348,7 @@ export default async function (ctx) {
   var RT = {
     platform: "Egern",
     env: env,
+    storeProbe: storeRead,
     http: http,
     notify: notify,
     log: log,

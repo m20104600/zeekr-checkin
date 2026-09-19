@@ -184,6 +184,8 @@ python3 tests/e2e-qinglong.py # 22 项：真跑青龙脚本（多账号、zeekr_
 | Loon 插件「加载不出来」 | 用 [`configs/loon.plugin`](configs/loon.plugin)：Loon 只在文件首行是 `#!name` 时才当作插件；只含 `[Script]` 的片段不会被识别 |
 | Egern 报「发生错误，位于第 N 行」 | 用模块方式加载 [`configs/egern.yaml`](configs/egern.yaml)（Egern → 模块 → +）。原因：模块文件需要元数据字段，且 YAML 里 `\d` 必须写在单引号里，双引号内是非法转义 |
 | 抓取规则配了却抓不到 Token | 早期版本的 `configs/*` 正则被多转义一层（`\.` 错写成 `\\.`），匹配不上真实 URL —— 已修。用最新 `configs/`，`tests/configs-check.py` 现在会验证每条正则真的能匹配目标 URL |
+| 抓取开了 MITM 还是抓不到 Token（推荐排查顺序） | ① **确认 MITM 生效**：MITM/HTTPS 解密已开启 + CA 证书已安装并在 iOS「证书信任设置」里信任（这步最常漏）+ `api-gw-toc.zeekrlife.com` 在 MITM 列表里；② **打开调试开关**（Egern 模块里的「抓取调试」/ QX 的 `#CAPDEBUG=1` / Loon 的 `argument="CAPDEBUG=1"` / Stash 的 `ZEEKR_CAPDEBUG`），再打开极氪 App：<br>没任何通知 = 规则没命中或 MITM 没生效；<br>通知写「没有 Authorization ✗」= 命中了但那条请求不带 token（多点几个页面再试）；<br>通知写「带 Authorization ✓」+「已存入 ✓」= 抓到了；若写「⚠️ 存储写入失败」请把该情况反馈<br>③ 请求阶段不触发就改用**响应阶段兜底**（配置里已备好注释行，参考脚本 wf021325/qx 用的就是响应阶段） |
+| 定时任务报「缺少 Token」但手机已经抓到 | 用 Egern 的「极氪Token自检（手动跑一次）」脚本确认能否读到存储；若存储读取正常但仍报缺 Token，把 ZEEKR_TOKEN 直接填进参数（值可从抓取通知里复制） |
 | 通知里一大串乱码/长文本 | 是抓取到的 Token（给青龙复制的）。不想显示设 `CAPSHOW=0` |
 
 ---

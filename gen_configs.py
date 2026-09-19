@@ -33,6 +33,7 @@ RE_LOON = r"/^https:\/\/api-gw-toc\.zeekrlife\.com\/" + EP + r"/"
 RE_LOON_BROAD = r"/^https:\/\/api-gw-toc\.zeekrlife\.com\//"
 RE_STASH = r"^https://api-gw-toc\.zeekrlife\.com/" + EP
 RE_STASH_BROAD = r"^https://api-gw-toc\.zeekrlife\.com/"
+RE_STASH_NARROW_FULL = RE_STASH + r"$"
 
 HEADER = f"""# ══════════════════════════════════════════════════════════════════════
 # 极氪签到 · {{client}}
@@ -60,10 +61,14 @@ qx = HEADER.format(client="Quantumult X") + f"""
 hostname = api-gw-toc.zeekrlife.com
 
 [rewrite_local]
-# 自动抓 Token：极氪 App 会发的那个接口，抓到 Authorization 就存进 QX
-{RE_QX} url script-request-header {REPO}/zeekr.js
-# 抓不到就把上面那行换成整域名匹配（更稳，开销略大）：
-# {RE_QX_BROAD} url script-request-header {REPO}/zeekr.js
+# 自动抓 Token：默认匹配整个 api-gw-toc 域名（App 任何一条请求都会带上 Authorization）
+{RE_QX_BROAD} url script-request-header {REPO}/zeekr.js
+# 只想匹配「用户信息」那个接口（开销更小，但新版 App 不一定发这个请求）：
+# {RE_QX} url script-request-header {REPO}/zeekr.js
+# 若上面两种都不触发，换成参考脚本（wf021325/qx）用的「响应阶段」写法：
+# {RE_QX} url script-response-body {REPO}/zeekr.js
+# 排查用：在 URL 的 # 后面加上 CAPDEBUG=1，就会为每条命中的请求弹一条通知（看规则到底有没有生效）
+# {RE_QX_BROAD} url script-request-header {REPO}/zeekr.js#CAPDEBUG=1
 
 [task_local]
 # 凌晨场
@@ -100,9 +105,14 @@ TAG = input,"凌晨场",tag=场次标签,desc=只用于通知标题
 
 [Script]
 # ① 自动抓 Token（打开极氪 App 时触发，抓到就存进 Loon；通知里会带完整 Token）
-http-request if ${{url}} ~= {RE_LOON} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
-# 抓不到就把上面那行换成整域名匹配：
-# http-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
+#    默认匹配整个 api-gw-toc 域名，最稳；只想匹配「用户信息」接口就把下面那行换成窄版
+http-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
+# 窄版（开销更小；新版 App 不一定发这个请求）：
+# http-request if ${{url}} ~= {RE_LOON} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
+# 若整域名也不触发，换成「响应阶段」兜底（参考脚本 wf021325/qx 就是用响应阶段）：
+# http-response if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token(响应阶段)", timeout=20
+# 调试：临时把抓取那行换成这行（每条命中的请求都会弹通知，证明规则生效了）
+# http-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js", "CAPDEBUG=1") with tag="极氪抓Token(调试)", timeout=20
 
 # ② 三场定时（快跑，单次约 10~25 秒）+ 每场 10 分钟后的「只领取」补领
 cron "1 0 * * *" then script("{REPO}/zeekr.js", {{${{TOKEN}}, ${{TAG}}}}) with tag="极氪签到·凌晨场", timeout=60
@@ -125,8 +135,8 @@ hostname = api-gw-toc.zeekrlife.com
 
 loon_snippet = HEADER.format(client="Loon 配置片段（想合并进自己的 .conf 时用；手机上装插件请用 loon.plugin）") + f"""
 [Script]
-# 自动抓 Token
-http-request if ${{url}} ~= {RE_LOON} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
+# 自动抓 Token（默认整域名；调试时加 "CAPDEBUG=1" 参数会为每条命中请求弹通知）
+http-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
 # 三场 + 补领（argument 直接写字面串）
 cron "1 0 * * *" then script("{REPO}/zeekr.js", "{K}={PH}&TAG=凌晨场") with tag="极氪签到·凌晨场", timeout=60
 cron "10 0 * * *" then script("{REPO}/zeekr.js", "MODE=claim&TAG=凌晨场·补领") with tag="极氪签到·凌晨补领", timeout=60
@@ -149,10 +159,21 @@ http:
   # 自动抓 Token（type: request：只读请求头，不改请求）
   script:
     - name: zeekr
-      match: '{RE_STASH}'
+      match: '{RE_STASH_BROAD}'
       type: request
       timeout: 10
-    # 抓不到就把上面 match 换成整域名：'{RE_STASH_BROAD}'
+    # 窄版（开销更小；新版 App 不一定发这个请求）：match: '{RE_STASH}'
+    # 若上面不触发，换成响应阶段兜底（type: response）
+    # - name: zeekr
+    #   match: '{RE_STASH_BROAD}'
+    #   type: response
+    #   timeout: 10
+    # 调试：临时改成下面这样，每条命中的请求都会弹通知
+    # - name: zeekr
+    #   match: '{RE_STASH_BROAD}'
+    #   type: request
+    #   timeout: 10
+    #   argument: '{{"ZEEKR_CAPDEBUG":"1"}}'
 
 cron:
   script:
@@ -225,6 +246,10 @@ env_schema:
   {K}:
     name: "极氪 Token"
     description: "可留空：开着 MITM 打开一次极氪 App 就会自动抓取并存起来"
+  ZEEKR_CAPDEBUG:
+    name: "抓取调试"
+    description: "打开后，每条命中的抓取请求都会弹通知（用来确认规则是否生效），排查完记得关掉"
+    options: ["false", "true"]
 
 # 需要 MITM 才能抓到 HTTPS 请求里的 Token（启用模块后会合并进主配置）
 mitm:
@@ -235,10 +260,28 @@ scriptings:
   # ① 自动抓 Token（HTTP 请求脚本）
   - http_request:
       name: "极氪抓Token"
-      match: '{RE_STASH}'
+      # 默认匹配整个 api-gw-toc 域名（App 任何一条请求都会带 Authorization，最稳）
+      match: '{RE_STASH_BROAD}'
       script_url: "{REPO}/zeekr.egern.js"
       timeout: 20
-      # 抓不到就把 match 换成整域名：'{RE_STASH_BROAD}'
+      # 窄版（开销更小；新版 App 不一定发这个请求）：'{RE_STASH}'
+
+  # ①b 兜底：万一请求阶段不触发，用响应阶段再抓一次（参考脚本 wf021325/qx 用的就是响应阶段；
+  #      只匹配「用户信息」接口，开销很小；同一个 Token 不会重复通知）
+  - http_response:
+      name: "极氪抓Token(响应阶段兜底)"
+      match: '{RE_STASH_NARROW_FULL}'
+      script_url: "{REPO}/zeekr.egern.js"
+      timeout: 20
+
+  # 手动自检：在 Egern「脚本」里点一下就跑 —— 能跑到「本次领取」说明抓存的 Token 有效
+  - generic:
+      name: "极氪Token自检（手动跑一次）"
+      script_url: "{REPO}/zeekr.egern.js"
+      timeout: 120
+      env:
+        ZEEKR_MODE: "claim"
+        ZEEKR_TAG: "自检"
 
   # ② 三场定时 + 每场 10 分钟后的补领
   - schedule:

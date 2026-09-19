@@ -29,6 +29,10 @@ env_schema:
   ZEEKR_TOKEN:
     name: "极氪 Token"
     description: "可留空：开着 MITM 打开一次极氪 App 就会自动抓取并存起来"
+  ZEEKR_CAPDEBUG:
+    name: "抓取调试"
+    description: "打开后，每条命中的抓取请求都会弹通知（用来确认规则是否生效），排查完记得关掉"
+    options: ["false", "true"]
 
 # 需要 MITM 才能抓到 HTTPS 请求里的 Token（启用模块后会合并进主配置）
 mitm:
@@ -39,10 +43,28 @@ scriptings:
   # ① 自动抓 Token（HTTP 请求脚本）
   - http_request:
       name: "极氪抓Token"
-      match: '^https://api-gw-toc\.zeekrlife\.com/zeekrlife-app-user/v\d/user/info/query'
+      # 默认匹配整个 api-gw-toc 域名（App 任何一条请求都会带 Authorization，最稳）
+      match: '^https://api-gw-toc\.zeekrlife\.com/'
       script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
       timeout: 20
-      # 抓不到就把 match 换成整域名：'^https://api-gw-toc\.zeekrlife\.com/'
+      # 窄版（开销更小；新版 App 不一定发这个请求）：'^https://api-gw-toc\.zeekrlife\.com/zeekrlife-app-user/v\d/user/info/query'
+
+  # ①b 兜底：万一请求阶段不触发，用响应阶段再抓一次（参考脚本 wf021325/qx 用的就是响应阶段；
+  #      只匹配「用户信息」接口，开销很小；同一个 Token 不会重复通知）
+  - http_response:
+      name: "极氪抓Token(响应阶段兜底)"
+      match: '^https://api-gw-toc\.zeekrlife\.com/zeekrlife-app-user/v\d/user/info/query$'
+      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
+      timeout: 20
+
+  # 手动自检：在 Egern「脚本」里点一下就跑 —— 能跑到「本次领取」说明抓存的 Token 有效
+  - generic:
+      name: "极氪Token自检（手动跑一次）"
+      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
+      timeout: 120
+      env:
+        ZEEKR_MODE: "claim"
+        ZEEKR_TAG: "自检"
 
   # ② 三场定时 + 每场 10 分钟后的补领
   - schedule:

@@ -25,10 +25,21 @@ http:
   # 自动抓 Token（type: request：只读请求头，不改请求）
   script:
     - name: zeekr
-      match: '^https://api-gw-toc\.zeekrlife\.com/zeekrlife-app-user/v\d/user/info/query'
+      match: '^https://api-gw-toc\.zeekrlife\.com/'
       type: request
       timeout: 10
-    # 抓不到就把上面 match 换成整域名：'^https://api-gw-toc\.zeekrlife\.com/'
+    # 窄版（开销更小；新版 App 不一定发这个请求）：match: '^https://api-gw-toc\.zeekrlife\.com/zeekrlife-app-user/v\d/user/info/query'
+    # 若上面不触发，换成响应阶段兜底（type: response）
+    # - name: zeekr
+    #   match: '^https://api-gw-toc\.zeekrlife\.com/'
+    #   type: response
+    #   timeout: 10
+    # 调试：临时改成下面这样，每条命中的请求都会弹通知
+    # - name: zeekr
+    #   match: '^https://api-gw-toc\.zeekrlife\.com/'
+    #   type: request
+    #   timeout: 10
+    #   argument: '{"ZEEKR_CAPDEBUG":"1"}'
 
 cron:
   script:

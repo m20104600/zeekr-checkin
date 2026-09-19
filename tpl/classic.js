@@ -311,7 +311,9 @@ var ZEEKR_DEFAULT_CONFIG = {
       if (!Object.prototype.hasOwnProperty.call(env, k)) continue;
       if (zeekrNormKey(k) !== name) continue;
       var v = String(env[k]).trim().toLowerCase();
-      if (v === "0" || v === "false" || v === "off" || v === "no" || v === "") return false;
+      if (v === "" || v === "0" || v === "false" || v === "off" || v === "no") return false;
+      // 插件参数没被替换（如 ${CAPDEBUG}）时按默认值处理，别把占位符当成 true
+      if (v.charAt(0) === "$" || v.charAt(0) === "<") return def;
       return true;
     }
     return def;
@@ -334,15 +336,31 @@ var ZEEKR_DEFAULT_CONFIG = {
       lower[String(hk).toLowerCase()] = rawHeaders[hk];
     }
     var auth = lower["authorization"] || lower["Authorization"] || "";
+    var capDebug = envFlag("CAPDEBUG", false);
+    var showTokFlag = envFlag("CAPSHOW", true);
+    if (capDebug) {
+      var u = String(($request && $request.url) || "");
+      notify(
+        "🔍 极氪抓取调试（命中一条请求）",
+        ($request && $request.method ? $request.method : "?") +
+          " " +
+          u.replace(/^https?:\/\/[^/]+/, "") +
+          "\n" +
+          (auth ? "带 Authorization ✓" : "没有 Authorization ✗") +
+          "\n（把 CAPDEBUG 关掉就不会再弹）"
+      );
+    }
     if (auth && /^Bearer\s/i.test(String(auth))) {
       var prev = zeekrTokenFromStore(storeRead());
-      storeWrite(
+      var saved = storeWrite(
         JSON.stringify({
           authorization: auth,
           device_id: lower["device_id"] || "",
           ts: Date.now(),
         })
       );
+      // 回读一次，确认真的写进去了（有些客户端在 request 脚本里不允许写存储）
+      var back = zeekrTokenFromStore(storeRead());
       var ti = zeekrParseToken(auth);
       var tip =
         "账号 " +
@@ -352,11 +370,11 @@ var ZEEKR_DEFAULT_CONFIG = {
         "（剩余 " +
         ti.daysLeft +
         " 天）";
-      log("[极氪签到] 🔐 已抓取 Token: " + tip);
-      if (prev !== auth) {
-        var showTok = envFlag("CAPSHOW", true);
-        var body = tip + "\n定时任务会自动使用，无需手填 Token";
-        if (showTok) {
+      var stored = back === auth;
+      log("[极氪签到] 🔐 已抓取 Token: " + tip + (stored ? "（已存 ✓）" : "（⚠️ 存储写入失败）"));
+      if (prev !== auth || capDebug) {
+        var body = tip + "\n" + (stored ? "已存入客户端持久化存储 ✓，定时任务会自动使用" : "⚠️ 存储写入失败：定时任务无法自动使用，请改用参数手填 TOKEN");
+        if (showTokFlag) {
           body +=
             "\n\n青龙等无法自动抓取的平台，把这行复制过去当 Token：\n" + auth;
           log("[极氪签到] 🔐 可复制给青龙的 Token: " + auth);

@@ -83,6 +83,8 @@ for fn in ("stash.yaml", "egern.yaml"):
 
 for fn, pats in regexes.items():
     check(f"{fn} 里有抓取正则", bool(pats))
+    check(f"{fn} 正则没有 ^^ / $$ 这种重复锚点", not any(p.startswith("^^") or p.endswith("$$") for p in pats),
+          [p[:40] for p in pats if p.startswith("^^") or p.endswith("$$")])
     for p in pats:
         try:
             rx = re.compile(p)
@@ -124,7 +126,8 @@ try:
                 if not isinstance(v, str):
                     bad_entry.append(body)
     check("egern.yaml 每个 scriptings 条目都是单键映射",
-          not bad_entry and len(kinds) == 7, f"kinds={kinds} bad={len(bad_entry)}")
+          not bad_entry and len(kinds) >= 7, f"kinds={kinds} bad={len(bad_entry)}")
+    check("egern.yaml 里有 1 个手动自检脚本（generic）", kinds.count("generic") == 1, kinds)
     check("egern.yaml 含 1 条 http_request + 6 条 schedule",
           kinds.count("http_request") == 1 and kinds.count("schedule") == 6, kinds)
     check("egern.yaml 的 schedule 都带 env（MODE/TAG）",

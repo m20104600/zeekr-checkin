@@ -79,6 +79,23 @@ export default async function (ctx) {
   // HTTP 脚本上下文（Egern 把请求交给我们时带 ctx.request）：抓 Token 后立刻返回
   if (ctx.request && ctx.request.headers) {
     var auth = String(headerGet(ctx.request.headers, "authorization") || "");
+    var dbg = String(env.ZEEKR_CAPDEBUG || env.CAPDEBUG || "").toLowerCase();
+    var capDebug = !(dbg === "" || dbg === "0" || dbg === "false" || dbg === "off" || dbg === "no");
+    if (capDebug) {
+      var uu = String((ctx.request && ctx.request.url) || "");
+      try {
+        ctx.notify({
+          title: "🔍 极氪抓取调试（命中一条请求）",
+          body:
+            ((ctx.request && ctx.request.method) || "?") +
+            " " +
+            uu.replace(/^https?:\/\/[^/]+/, "") +
+            "\n" +
+            (auth ? "带 Authorization ✓" : "没有 Authorization ✗"),
+        });
+      } catch (e) {}
+      log("[极氪签到] 🔍 抓取调试: " + uu + " auth=" + (auth ? "有" : "无"));
+    }
     if (auth && /^Bearer\s/i.test(auth)) {
       var prevEg = zeekrTokenFromStore(storeRead());
       storeWrite(
@@ -88,6 +105,9 @@ export default async function (ctx) {
           ts: Date.now(),
         })
       );
+      // 回读确认（有些运行环境在请求脚本里不允许写存储）
+      var backEg = zeekrTokenFromStore(storeRead());
+      var storedEg = backEg === auth;
       var tiEg = zeekrParseToken(auth);
       var tipEg =
         "账号 " +
@@ -97,11 +117,14 @@ export default async function (ctx) {
         "（剩余 " +
         tiEg.daysLeft +
         " 天）";
-      log("[极氪签到] 🔐 已抓取 Token: " + tipEg);
-      if (prevEg !== auth) {
+      log("[极氪签到] 🔐 已抓取 Token: " + tipEg + (storedEg ? "（已存 ✓）" : "（⚠️ 存储写入失败）"));
+      if (prevEg !== auth || capDebug) {
         var bodyEg =
           tipEg +
-          "\n定时任务会自动使用，无需手填 Token" +
+          "\n" +
+          (storedEg
+            ? "已存入客户端持久化存储 ✓，定时任务会自动使用"
+            : "⚠️ 存储写入失败：定时任务无法自动使用，请改用模块参数手填 ZEEKR_TOKEN") +
           "\n\n青龙等无法自动抓取的平台，把这行复制过去当 Token：\n" +
           auth;
         log("[极氪签到] 🔐 可复制给青龙的 Token: " + auth);

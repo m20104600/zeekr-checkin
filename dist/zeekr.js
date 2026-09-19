@@ -1376,15 +1376,18 @@ async function zeekrMain(RT) {
     }
     if (auth && /^Bearer\s/i.test(String(auth))) {
       var prev = zeekrTokenFromStore(storeRead());
-      var saved = storeWrite(
-        JSON.stringify({
-          authorization: auth,
-          device_id: lower["device_id"] || "",
-          ts: Date.now(),
-        })
-      );
-      // 回读一次，确认真的写进去了（有些客户端在 request 脚本里不允许写存储）
-      var back = zeekrTokenFromStore(storeRead());
+      var back = prev;
+      if (prev !== auth) {
+        storeWrite(
+          JSON.stringify({
+            authorization: auth,
+            device_id: lower["device_id"] || "",
+            ts: Date.now(),
+          })
+        );
+        // 回读一次，确认真的写进去了（有些客户端在 request 脚本里不允许写存储）
+        back = zeekrTokenFromStore(storeRead());
+      }
       var ti = zeekrParseToken(auth);
       var tip =
         "账号 " +
@@ -1395,9 +1398,22 @@ async function zeekrMain(RT) {
         ti.daysLeft +
         " 天）";
       var stored = back === auth;
-      log("[极氪签到] 🔐 已抓取 Token: " + tip + (stored ? "（已存 ✓）" : "（⚠️ 存储写入失败）"));
+      var ruleName = "";
+      try {
+        if (typeof $script !== "undefined" && $script && $script.name) ruleName = String($script.name);
+      } catch (e) {}
+      log(
+        "[极氪签到] 🔐 已抓取 Token: " +
+          tip +
+          (stored ? "（已存 ✓）" : "（⚠️ 存储写入失败）") +
+          (ruleName ? " 规则:" + ruleName : "")
+      );
       if (prev !== auth || capDebug) {
-        var body = tip + "\n" + (stored ? "已存入客户端持久化存储 ✓，定时任务会自动使用" : "⚠️ 存储写入失败：定时任务无法自动使用，请改用参数手填 TOKEN");
+        var body =
+          tip +
+          "\n" +
+          (stored ? "已存入客户端持久化存储 ✓，定时任务会自动使用" : "⚠️ 存储写入失败：定时任务无法自动使用，请改用参数手填 TOKEN") +
+          (ruleName ? "\n触发规则：" + ruleName : "");
         if (showTokFlag) {
           body +=
             "\n\n青龙等无法自动抓取的平台，把这行复制过去当 Token：\n" + auth;

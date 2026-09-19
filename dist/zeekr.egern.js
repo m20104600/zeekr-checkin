@@ -1122,16 +1122,20 @@ export default async function (ctx) {
     }
     if (auth && /^Bearer\s/i.test(auth)) {
       var prevEg = zeekrTokenFromStore(storeRead());
-      storeWrite(
-        JSON.stringify({
-          authorization: auth,
-          device_id: headerGet(ctx.request.headers, "device_id"),
-          ts: Date.now(),
-        })
-      );
-      // 回读确认（有些运行环境在请求脚本里不允许写存储）
-      var backEg = zeekrTokenFromStore(storeRead());
+      var backEg = prevEg;
+      if (prevEg !== auth) {
+        storeWrite(
+          JSON.stringify({
+            authorization: auth,
+            device_id: headerGet(ctx.request.headers, "device_id"),
+            ts: Date.now(),
+          })
+        );
+        // 回读确认（有些运行环境在请求脚本里不允许写存储）
+        backEg = zeekrTokenFromStore(storeRead());
+      }
       var storedEg = backEg === auth;
+      var ruleNameEg = (ctx && ctx.script && ctx.script.name) || "";
       var tiEg = zeekrParseToken(auth);
       var tipEg =
         "账号 " +
@@ -1141,7 +1145,12 @@ export default async function (ctx) {
         "（剩余 " +
         tiEg.daysLeft +
         " 天）";
-      log("[极氪签到] 🔐 已抓取 Token: " + tipEg + (storedEg ? "（已存 ✓）" : "（⚠️ 存储写入失败）"));
+      log(
+        "[极氪签到] 🔐 已抓取 Token: " +
+          tipEg +
+          (storedEg ? "（已存 ✓）" : "（⚠️ 存储写入失败）") +
+          (ruleNameEg ? " 规则:" + ruleNameEg : "")
+      );
       if (prevEg !== auth || capDebug) {
         var bodyEg =
           tipEg +
@@ -1149,6 +1158,7 @@ export default async function (ctx) {
           (storedEg
             ? "已存入客户端持久化存储 ✓，定时任务会自动使用"
             : "⚠️ 存储写入失败：定时任务无法自动使用，请改用模块参数手填 ZEEKR_TOKEN") +
+          (ruleNameEg ? "\n触发规则：" + ruleNameEg : "") +
           "\n\n青龙等无法自动抓取的平台，把这行复制过去当 Token：\n" +
           auth;
         log("[极氪签到] 🔐 可复制给青龙的 Token: " + auth);

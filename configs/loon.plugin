@@ -36,8 +36,8 @@ TAG = input,"凌晨场",tag=场次标签,desc=只用于通知标题
 http-request if ${url} ~= /^https:\/\/api-gw-toc\.zeekrlife\.com\// then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js") with tag="极氪抓Token", timeout=20
 # 窄版（开销更小；新版 App 不一定发这个请求）：
 # http-request if ${url} ~= /^https:\/\/api-gw-toc\.zeekrlife\.com\/zeekrlife-app-user/v\d/user/info/query/ then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js") with tag="极氪抓Token", timeout=20
-# 若整域名也不触发，换成「响应阶段」兜底（参考脚本 wf021325/qx 就是用响应阶段）：
-# http-response if ${url} ~= /^https:\/\/api-gw-toc\.zeekrlife\.com\// then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js") with tag="极氪抓Token(响应阶段)", timeout=20
+# 若请求阶段不触发，用「响应阶段」兜底（参考脚本 wf021325/qx 用的就是响应阶段；整域名）
+# http-response if ${url} ~= /^https:\/\/api-gw-toc\.zeekrlife\.com\// then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js") with tag="极氪抓Token(响应阶段兜底)", timeout=20
 # 调试：临时把抓取那行换成这行（每条命中的请求都会弹通知，证明规则生效了）
 # http-request if ${url} ~= /^https:\/\/api-gw-toc\.zeekrlife\.com\// then script("https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js", "CAPDEBUG=1") with tag="极氪抓Token(调试)", timeout=20
 

@@ -53,7 +53,7 @@ scriptings:
   #      只匹配「用户信息」接口，开销很小；同一个 Token 不会重复通知）
   - http_response:
       name: "极氪抓Token(响应阶段兜底)"
-      match: '^https://api-gw-toc\.zeekrlife\.com/zeekrlife-app-user/v\d/user/info/query$'
+      match: '^https://api-gw-toc\.zeekrlife\.com/'
       script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
       timeout: 20
 

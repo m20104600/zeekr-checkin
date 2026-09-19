@@ -65,8 +65,8 @@ hostname = api-gw-toc.zeekrlife.com
 {RE_QX_BROAD} url script-request-header {REPO}/zeekr.js
 # 只想匹配「用户信息」那个接口（开销更小，但新版 App 不一定发这个请求）：
 # {RE_QX} url script-request-header {REPO}/zeekr.js
-# 若上面两种都不触发，换成参考脚本（wf021325/qx）用的「响应阶段」写法：
-# {RE_QX} url script-response-body {REPO}/zeekr.js
+# 若请求阶段不触发，用参考脚本（wf021325/qx）的「响应阶段」写法兜底（整域名）：
+# {RE_QX_BROAD} url script-response-body {REPO}/zeekr.js
 # 排查用：在 URL 的 # 后面加上 CAPDEBUG=1，就会为每条命中的请求弹一条通知（看规则到底有没有生效）
 # {RE_QX_BROAD} url script-request-header {REPO}/zeekr.js#CAPDEBUG=1
 
@@ -109,8 +109,8 @@ TAG = input,"凌晨场",tag=场次标签,desc=只用于通知标题
 http-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
 # 窄版（开销更小；新版 App 不一定发这个请求）：
 # http-request if ${{url}} ~= {RE_LOON} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
-# 若整域名也不触发，换成「响应阶段」兜底（参考脚本 wf021325/qx 就是用响应阶段）：
-# http-response if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token(响应阶段)", timeout=20
+# 若请求阶段不触发，用「响应阶段」兜底（参考脚本 wf021325/qx 用的就是响应阶段；整域名）
+# http-response if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token(响应阶段兜底)", timeout=20
 # 调试：临时把抓取那行换成这行（每条命中的请求都会弹通知，证明规则生效了）
 # http-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js", "CAPDEBUG=1") with tag="极氪抓Token(调试)", timeout=20
 
@@ -274,7 +274,7 @@ scriptings:
   #      只匹配「用户信息」接口，开销很小；同一个 Token 不会重复通知）
   - http_response:
       name: "极氪抓Token(响应阶段兜底)"
-      match: '{RE_STASH_NARROW_FULL}'
+      match: '{RE_STASH_BROAD}'
       script_url: "{REPO}/zeekr.egern.js"
       timeout: 20
 

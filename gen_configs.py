@@ -38,7 +38,7 @@ RE_STASH_NARROW_FULL = RE_STASH + r"$"
 HEADER = f"""# ══════════════════════════════════════════════════════════════════════
 # 极氪签到 · {{client}}
 # 脚本地址：{REPO}/zeekr.js   （Egern 用 zeekr.egern.js）
-# 国内更快的镜像：{REPO_ALT}
+# 国内更快的镜像：{REPO_ALT}/zeekr.js   （整组镜像地址见 README「脚本地址」一节）
 #
 # 两种拿 Token 的方式（任选）：
 #   A. 自动抓（推荐）：配好下面的抓取规则，开启 MITM（信任 CA）后打开极氪 App 点一下，

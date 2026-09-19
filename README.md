@@ -17,6 +17,75 @@
 
 ---
 
+## 脚本地址（复制即用）
+
+每个地址都是**一行纯链接**，长按/双击选中即可整段复制。
+
+### Quantumult X / Loon / Stash / Surge / Node.js —— 定时任务脚本
+
+```
+https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js
+```
+
+### Egern —— 定时任务脚本
+
+```
+https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js
+```
+
+### 青龙 / 任意 Node.js ≥ 14 —— 任务脚本
+
+```
+https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.qinglong.js
+```
+
+青龙容器里也可以一条命令直接装（会下载脚本到 `scripts/` 并建好定时任务）：
+
+```bash
+ql raw https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.qinglong.js
+```
+
+### 配置 / 插件 / 模块地址（直接粘贴到 App 里）
+
+Loon 插件（Loon → 配置 → 插件 → 右上角 `+` → 粘贴）：
+
+```
+https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/configs/loon.plugin
+```
+
+Egern 模块（Egern → 模块 → 右上角 `+` → 粘贴）：
+
+```
+https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/configs/egern.yaml
+```
+
+Stash 覆写（Stash → 覆写 → 右上角 `+` → 粘贴）：
+
+```
+https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/configs/stash.yaml
+```
+
+Quantumult X 没有远程配置片段，需要把
+[`configs/qx.conf`](configs/qx.conf) 里的 `[mitm]` / `[rewrite_local]` / `[task_local]` 三段复制进自己的配置。
+
+### 国内镜像（jsDelivr，GitHub 打不开时用）
+
+把 `raw.githubusercontent.com/m20104600/zeekr-checkin/main`
+换成 `cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main` 即可，例如：
+
+```
+https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist/zeekr.js
+https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist/zeekr.egern.js
+https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/dist/zeekr.qinglong.js
+https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/configs/loon.plugin
+https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/configs/egern.yaml
+https://cdn.jsdelivr.net/gh/m20104600/zeekr-checkin@main/configs/stash.yaml
+```
+
+> jsDelivr 有缓存（改完脚本可能要等几分钟才刷新），排查问题时优先用 raw 地址。
+
+---
+
 ## 特性
 
 - **零依赖纯 JS**：SHA1 签名、base64（步数 secret 要套 5 层）都是手写实现，
@@ -210,6 +279,11 @@ python3 tests/e2e-qinglong.py # 22 项：真跑青龙脚本（多账号、zeekr_
 ---
 
 ## 更新记录
+
+- **2026-09-19（第二轮）**：README 新增 **「脚本地址（复制即用）」** 集中区 ——
+  每个客户端一行纯链接（QX/Loon/Stash/Surge/Node、Egern、青龙、Loon 插件、Egern 模块、Stash 覆写），
+  外加 jsDelivr 国内镜像整组地址和青龙的 `ql raw` 一条命令安装；
+  新增 `tests/links-check.py` 校验 README/configs 里所有地址真的能 200 且与本地成品逐字节一致。
 
 - **2026-09-19**：修正配置文件的两个致命问题 ——
   ① Loon 配置改成**真正的插件**（`configs/loon.plugin`，首行 `#!name`，带 `[Argument]` 参数 UI），

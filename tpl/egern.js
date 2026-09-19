@@ -78,6 +78,12 @@ export default async function (ctx) {
 
   // HTTP 脚本上下文（Egern 把请求交给我们时带 ctx.request）：抓 Token 后立刻返回
   if (ctx.request && ctx.request.headers) {
+    // 抓取开关：ZEEKR_CAPON=false 时不抓（抓一次过就把模块设置里的开关关掉即可）
+    var onVal = String(env.ZEEKR_CAPON || env.CAPON || "").trim().toLowerCase();
+    if (onVal === "0" || onVal === "false" || onVal === "off" || onVal === "no") {
+      log("[极氪签到] 抓取已关闭（ZEEKR_CAPON=false），跳过本次抓取");
+      return;
+    }
     var auth = String(headerGet(ctx.request.headers, "authorization") || "");
     var dbg = String(env.ZEEKR_CAPDEBUG || env.CAPDEBUG || "").toLowerCase();
     var capDebug = !(dbg === "" || dbg === "0" || dbg === "false" || dbg === "off" || dbg === "no");

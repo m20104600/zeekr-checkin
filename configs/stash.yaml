@@ -29,6 +29,7 @@ http:
       type: request
       timeout: 10
     # 窄版（开销更小；新版 App 不一定发这个请求）：match: '^https://api-gw-toc\.zeekrlife\.com/zeekrlife-app-user/v\d/user/info/query'
+    # 抓完一次想停掉：给下面这条补上 argument: ZEEKR_CAPON=0（或直接注释掉本段）
     # 若上面不触发，换成响应阶段兜底（type: response）
     # - name: zeekr
     #   match: '^https://api-gw-toc\.zeekrlife\.com/'

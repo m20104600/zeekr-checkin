@@ -1353,6 +1353,13 @@ async function zeekrMain(RT) {
     : !scriptType && typeof $request !== "undefined" && !!$request && !!$request.headers;
 
   if (inRewrite) {
+    // 抓取开关（CAPON=0/false/off 时不抓）：抓过一次就能关掉，免得每次开 App 都写存储/弹通知。
+    // 客户端关法：Egern 模块设置 / Loon 插件参数 / QX 的 # 参数 / Stash 的 argument。
+    if (!envFlag("CAPON", true)) {
+      log("[极氪签到] 抓取已关闭（CAPON=0），跳过本次抓取");
+      finish();
+      return;
+    }
     var rawHeaders = ($request && $request.headers) || {};
     var lower = {};
     for (var hk in rawHeaders) {

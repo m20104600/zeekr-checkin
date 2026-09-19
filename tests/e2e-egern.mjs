@@ -116,6 +116,25 @@ check("通知里带完整 Token", (notifies2[0].body || '').indexOf(bearer) >= 0
 check("通知里回显是哪条规则触发的", (notifies2[0].body || '').indexOf('触发规则：') >= 0 && (notifies2[0].body || '').indexOf('响应阶段兜底') >= 0);
 check("通知里说明已存入存储", (notifies2[0].body || '').indexOf('已存入客户端持久化存储') >= 0);
 
+console.log("\n== B2. Egern：抓取开关 ZEEKR_CAPON=false 时不抓 ==");
+{
+  const logsB2 = [];
+  const notesB2 = [];
+  const storeB2 = {};
+  const ctxB2 = makeCtx({ ZEEKR_CAPON: "false" }, storeB2, logsB2, notesB2);
+  ctxB2.request = {
+    method: "GET",
+    url: "https://api-gw-toc.zeekrlife.com/zeekrlife-app-user/v1/user/info/query",
+    headers: { get: (n) => (String(n).toLowerCase() === "authorization" ? bearer : null) },
+  };
+  sink = logsB2;
+  await run(ctxB2);
+  sink = null;
+  check("没有写存储", !storeB2.zeekr_val);
+  check("没有弹通知", notesB2.length === 0);
+  check("日志说明抓取已关闭", logsB2.some((l) => l.indexOf("抓取已关闭") >= 0));
+}
+
 console.log("\n== C. 抓一次后免填 Token（storage 兜底）==");
 const logs3 = [];
 const store3 = { zeekr_val: JSON.stringify({ authorization: bearer }) };

@@ -156,6 +156,15 @@ check("loon.plugin 有 6 条 cron", len(re.findall(r"^cron ", loon, re.M)) == 6,
 check("loon.plugin 声明了 TOKEN 参数", re.search(r"^TOKEN\s*=", loon, re.M) is not None)
 check("loon.plugin 的 Mitm 域名正确", "hostname = api-gw-toc.zeekrlife.com" in loon)
 
+print("\n== 4b. 可编辑参数 & 抓取开关 ==")
+check("Egern 模块设置了「抓取开关」字段", "抓取开关" in read("egern.yaml") and "ZEEKR_CAPON" in read("egern.yaml"))
+for k in ("ZEEKR_TOKEN", "ZEEKR_CAPSHOW", "ZEEKR_POLL", "ZEEKR_STEPS", "ZEEKR_NOTIFY"):
+    check(f"Egern env_schema 暴露了 {k}", k in read("egern.yaml"))
+for k in ("CAPON", "CAPSHOW", "CAPDEBUG", "POLL", "STEPS", "NOTIFY"):
+    check(f"Loon 插件参数里有 {k}", re.search(rf"^{k}\s*=", read("loon.plugin"), re.M) is not None)
+for fn in ("qx.conf", "loon.plugin", "stash.yaml", "egern.yaml"):
+    check(f"{fn} 说明了抓取开关怎么关", "CAPON" in read(fn), fn)
+
 print("\n== 5. 脚本地址 & 敏感信息 ==")
 for fn in ("qx.conf", "loon.plugin", "loon-snippet.conf", "stash.yaml", "egern.yaml"):
     t = read(fn)

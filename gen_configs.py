@@ -67,6 +67,7 @@ hostname = api-gw-toc.zeekrlife.com
 # {RE_QX} url script-request-header {REPO}/zeekr.js
 # 若请求阶段不触发，用参考脚本（wf021325/qx）的「响应阶段」写法兜底（整域名）：
 # {RE_QX_BROAD} url script-response-body {REPO}/zeekr.js
+# 抓完一次不想每次都抓：直接在 QX「重写」列表里把这条关掉；或者给 URL 加参数 #CAPON=0
 # 排查用：在 URL 的 # 后面加上 CAPDEBUG=1，就会为每条命中的请求弹一条通知（看规则到底有没有生效）
 # {RE_QX_BROAD} url script-request-header {REPO}/zeekr.js#CAPDEBUG=1
 
@@ -102,11 +103,18 @@ loon_plugin = f"""#!name = 极氪签到
 [Argument]
 TOKEN = input,"",tag=极氪 Token,desc=可留空：开着 MITM 打开一次极氪 App 就会自动抓取
 TAG = input,"凌晨场",tag=场次标签,desc=只用于通知标题
+CAPON = switch,true,tag=抓取开关,desc=抓过一次之后关掉，就不会每次打开极氪 App 都抓取/弹通知
+CAPSHOW = switch,true,tag=通知里显示完整Token,desc=关掉只显示账号/有效期（要复制给青龙时再打开）
+CAPDEBUG = switch,false,tag=抓取调试,desc=打开后每条命中的抓取请求都会弹通知（排查用）
+POLL = switch,false,tag=长轮询领取,desc=开启后单次跑 3~5 分钟领光（请把 timeout 提到 600）
+STEPS = input,"10000",tag=上报步数,desc=填 off 跳过步数上报
+NOTIFY = switch,true,tag=任务通知,desc=关掉后定时任务不发通知
+MODE = input,"claim",tag=补领任务模式,desc=只对「补领」那三条 cron 生效（主任务固定 all）
 
 [Script]
 # ① 自动抓 Token（打开极氪 App 时触发，抓到就存进 Loon；通知里会带完整 Token）
 #    默认匹配整个 api-gw-toc 域名，最稳；只想匹配「用户信息」接口就把下面那行换成窄版
-http-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
+http-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js", {{${{CAPON}}, ${{CAPSHOW}}, ${{CAPDEBUG}}}}) with tag="极氪抓Token", timeout=20
 # 窄版（开销更小；新版 App 不一定发这个请求）：
 # http-request if ${{url}} ~= {RE_LOON} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
 # 若请求阶段不触发，用「响应阶段」兜底（参考脚本 wf021325/qx 用的就是响应阶段；整域名）
@@ -115,12 +123,15 @@ http-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with 
 # http-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js", "CAPDEBUG=1") with tag="极氪抓Token(调试)", timeout=20
 
 # ② 三场定时（快跑，单次约 10~25 秒）+ 每场 10 分钟后的「只领取」补领
-cron "1 0 * * *" then script("{REPO}/zeekr.js", {{${{TOKEN}}, ${{TAG}}}}) with tag="极氪签到·凌晨场", timeout=60
-cron "10 0 * * *" then script("{REPO}/zeekr.js", "MODE=claim&TAG=凌晨场·补领") with tag="极氪签到·凌晨补领", timeout=60
-cron "10 8 * * *" then script("{REPO}/zeekr.js", "MODE=all&ZEEKR_TAG=早间场") with tag="极氪签到·早间场", timeout=60
-cron "20 8 * * *" then script("{REPO}/zeekr.js", "MODE=claim&TAG=早间场·补领") with tag="极氪签到·早间补领", timeout=60
-cron "30 21 * * *" then script("{REPO}/zeekr.js", "MODE=all&ZEEKR_TAG=晚间场") with tag="极氪签到·晚间场", timeout=60
-cron "40 21 * * *" then script("{REPO}/zeekr.js", "MODE=claim&TAG=晚间场·补领") with tag="极氪签到·晚间补领", timeout=60
+cron "1 0 * * *" then script("{REPO}/zeekr.js", {{${{TOKEN}}, ${{TAG}}, ${{CAPSHOW}}, ${{POLL}}, ${{STEPS}}, ${{NOTIFY}}}}) with tag="极氪签到·凌晨场", timeout=60
+cron "10 0 * * *" then script("{REPO}/zeekr.js", {{${{TOKEN}}, ${{TAG}}, ${{POLL}}, ${{NOTIFY}}, ${{MODE}}}}) with tag="极氪签到·凌晨补领", timeout=60
+cron "10 8 * * *" then script("{REPO}/zeekr.js", {{${{TOKEN}}, ${{TAG}}, ${{CAPSHOW}}, ${{POLL}}, ${{STEPS}}, ${{NOTIFY}}}}) with tag="极氪签到·早间场", timeout=60
+cron "20 8 * * *" then script("{REPO}/zeekr.js", {{${{TOKEN}}, ${{TAG}}, ${{POLL}}, ${{NOTIFY}}, ${{MODE}}}}) with tag="极氪签到·早间补领", timeout=60
+cron "30 21 * * *" then script("{REPO}/zeekr.js", {{${{TOKEN}}, ${{TAG}}, ${{CAPSHOW}}, ${{POLL}}, ${{STEPS}}, ${{NOTIFY}}}}) with tag="极氪签到·晚间场", timeout=60
+cron "40 21 * * *" then script("{REPO}/zeekr.js", {{${{TOKEN}}, ${{TAG}}, ${{POLL}}, ${{NOTIFY}}, ${{MODE}}}}) with tag="极氪签到·晚间补领", timeout=60
+
+# ⚠️ 如果你的 Loon 版本不支持插件参数对象写法，就把这 6 行换成 configs/loon-snippet.conf
+#    里的字面写法（功能一样，只是不能在插件界面改参数）。
 
 # 说明：
 # * 本文件是 Loon **插件**：开头的 #!name / #!desc 等元数据头必须有，
@@ -167,6 +178,7 @@ http:
       type: request
       timeout: 10
     # 窄版（开销更小；新版 App 不一定发这个请求）：match: '{RE_STASH}'
+    # 抓完一次想停掉：给下面这条补上 argument: ZEEKR_CAPON=0（或直接注释掉本段）
     # 若上面不触发，换成响应阶段兜底（type: response）
     # - name: zeekr
     #   match: '{RE_STASH_BROAD}'
@@ -246,14 +258,43 @@ author: "m20104600"
 homepage: "https://github.com/m20104600/zeekr-checkin"
 icon: "car.fill"
 
+# 模块设置里可以直接编辑下面这些参数（MODE / TAG 是每条任务各自的，见下面 scriptings）
 env_schema:
   {K}:
     name: "极氪 Token"
     description: "可留空：开着 MITM 打开一次极氪 App 就会自动抓取并存起来"
+  ZEEKR_CAPON:
+    name: "抓取开关"
+    description: "抓过一次之后关掉，就不会每次打开极氪 App 都去抓取/写存储/弹通知了"
+    options: ["true", "false"]
+    default_value: "true"
   ZEEKR_CAPDEBUG:
     name: "抓取调试"
     description: "打开后，每条命中的抓取请求都会弹通知（用来确认规则是否生效），排查完记得关掉"
     options: ["false", "true"]
+    default_value: "false"
+  ZEEKR_CAPSHOW:
+    name: "通知里显示完整 Token"
+    description: "关掉后通知只显示账号和有效期（Token 仍会存进存储）；要复制给青龙时再打开"
+    options: ["true", "false"]
+    default_value: "true"
+  ZEEKR_POLL:
+    name: "长轮询领取（POLL）"
+    description: "1 = 脚本自己轮询到领光（单次 3~5 分钟，timeout 要 ≥ 420）；0 = 快跑 + 靠补领任务收尾"
+    options: ["0", "1"]
+    default_value: "0"
+  ZEEKR_STEPS:
+    name: "上报步数"
+    description: "留空 = 随机 8000~12000；填 off 跳过步数上报"
+    default_value: "10000"
+  ZEEKR_APPVER:
+    name: "App 版本号"
+    description: "留空 = 自动查 iTunes；查询失败或想固定版本时填，例如 4.9.33"
+  ZEEKR_NOTIFY:
+    name: "任务通知"
+    description: "关掉后定时任务不再发通知（抓取通知不受影响）"
+    options: ["true", "false"]
+    default_value: "true"
 
 # 需要 MITM 才能抓到 HTTPS 请求里的 Token（启用模块后会合并进主配置）
 mitm:

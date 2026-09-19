@@ -228,6 +228,25 @@ const has = (logs, s) => logs.some((l) => l.indexOf(s) >= 0);
     check("通知仍然发出（账号/有效期）", r.notifies.length === 1 && /有效期至 \d{4}\//.test(r.notifies[0].body));
   }
 
+  console.log("\n== D3. CAPON=0：抓取开关关掉后不抓、不写存储、不弹通知 ==");
+  {
+    const r = await runClassic({
+      client: "http",
+      loon: true,
+      scriptType: "http-request",
+      argument: "CAPON=0",
+      request: {
+        url: "https://api-gw-toc.zeekrlife.com/zeekrlife-app-user/v1/user/info/query",
+        method: "GET",
+        headers: { authorization: TOKEN },
+      },
+    });
+    check("没有写存储", !r.store.zeekr_val);
+    check("没有弹通知", r.notifies.length === 0);
+    check("仍然正常结束（$done）", r.doneCalled === 1);
+    check("日志说明抓取已关闭", has(r.logs, "抓取已关闭"));
+  }
+
   console.log("\n== E. rewrite 抓取 Token（Quantumult X，$prefs）==");
   {
     const r = await runClassic({

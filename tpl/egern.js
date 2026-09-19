@@ -44,6 +44,7 @@ export default async function (ctx) {
 
   /* ── 持久化存储 + Token 自动抓取 ─────────────────────────────────────── */
   var ZEEKR_STORE_KEY = "zeekr_val";
+  var ZEEKR_NOTIFY_KEY = "zeekr_cap_last"; // 上次弹抓取通知的时间戳（防刷屏用）
 
   function storeRead(key) {
     try {
@@ -80,7 +81,7 @@ export default async function (ctx) {
   if (ctx.request && ctx.request.headers) {
     // 抓取开关：只认「停止抓取」= ZEEKR_CAPOFF（true）。
     // 刻意不看 CAPON —— 模块里残留的 CAPON=false 会让抓取永久失效（2026-09-19 踩过）。
-    if (zeekrReadFlag(env, ["CAPOFF", "NOCAP"], false)) {
+    if (zeekrReadFlag(env, ["CAPOFF", "NOCAP", "CAPSTOP", "STOPCAP", "CAP_OFF"], false)) {
       log("[极氪签到] 抓取已关闭（ZEEKR_CAPOFF=true），跳过本次抓取");
       return;
     }
@@ -115,9 +116,12 @@ export default async function (ctx) {
         // 回读确认（有些运行环境在请求脚本里不允许写存储）
         backEg = zeekrTokenFromStore(storeRead());
       }
-      // 抓到就通知（开关没关就一定有反馈，不会"明明抓到了却什么也没看到"）
+      // 通知策略：① 只有 Token 变化（或存储里本来没有）才通知 —— 避免开一次 App 弹几十条；
+      //           ② 60 秒内最多一条 —— 存储写失败等异常情况下也不会刷屏。
       var storedEg = backEg === auth;
       var changedEg = prevEg !== auth;
+      var lastNoteEg = parseInt(storeRead(ZEEKR_NOTIFY_KEY) || "0", 10) || 0;
+      var quietEg = Date.now() - lastNoteEg < ZEEKR_NOTIFY_GAP_MS;
       var showTokEg = zeekrReadFlag(env, ["CAPSHOW"], true);
       var ruleNameEg = (ctx && ctx.script && ctx.script.name) || "";
       var tiEg = zeekrParseToken(auth);
@@ -149,10 +153,15 @@ export default async function (ctx) {
         bodyEg += "\n\n青龙等抓不了的平台，把这行复制过去当 Token：\n" + auth;
         log("[极氪签到] 🔐 可复制给青龙的 Token: " + auth);
       }
-      try {
-        ctx.notify({ title: "✅ 极氪 Token 已保存", body: bodyEg });
-      } catch (eNote) {
-        log("[极氪签到] ⚠️ 通知失败: " + eNote);
+      if ((changedEg || !storedEg) && !quietEg) {
+        storeWrite(String(Date.now()), ZEEKR_NOTIFY_KEY);
+        try {
+          ctx.notify({ title: "✅ 极氪 Token 已保存", body: bodyEg });
+        } catch (eNote) {
+          log("[极氪签到] ⚠️ 通知失败: " + eNote);
+        }
+      } else {
+        log("[极氪签到] 🔐 已抓到 Token（和存储里相同，不重复通知）");
       }
     } else {
       log("[极氪签到] ⚠️ 这条请求没有 Authorization 头，未抓取");

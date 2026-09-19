@@ -271,6 +271,7 @@ var ZEEKR_DEFAULT_CONFIG = {
    * 定时任务上下文：env 里没 Token 就用存储里的兜底。
    * ─────────────────────────────────────────────────────────────────── */
   var ZEEKR_STORE_KEY = "zeekr_val";
+  var ZEEKR_NOTIFY_KEY = "zeekr_cap_last"; // 上次弹抓取通知的时间戳（防刷屏用）
   function storeRead(key) {
     var k = key || ZEEKR_STORE_KEY;
     try {
@@ -320,7 +321,7 @@ var ZEEKR_DEFAULT_CONFIG = {
     // 抓取开关：只认 CAPOFF（「停止抓取」打开时跳过）。刻意不看 CAPON —— 客户端里残留的
     // CAPON=false 会把抓取永久关掉（2026-09-19 踩过这个坑）。抓过一次就能关掉，免得每次开 App 都写存储/弹通知。
     // 客户端关法：Egern 模块设置 / Loon 插件参数 / QX 的 # 参数 / Stash 的 argument。
-    if (zeekrReadFlag(env, ["CAPOFF", "NOCAP"], false)) {
+    if (zeekrReadFlag(env, ["CAPOFF", "NOCAP", "CAPSTOP", "STOPCAP", "CAP_OFF"], false)) {
       log("[极氪签到] 抓取已关闭（CAPOFF=1 / 「停止抓取」开关已打开），跳过本次抓取");
       finish();
       return;
@@ -380,8 +381,11 @@ var ZEEKR_DEFAULT_CONFIG = {
           (stored ? "（已存 ✓）" : "（⚠️ 存储写入失败）") +
           (ruleName ? " 规则:" + ruleName : "")
       );
-      // 抓到就通知（开关没关就一定有反馈）
+      // 通知策略：只有 Token 变化（或存储里本来没有）才通知，且 60 秒内最多一条 ——
+      // 否则开一次 App 会被命中的每条请求刷出几十条通知
       var changed = prev !== auth;
+      var lastNote = parseInt(storeRead(ZEEKR_NOTIFY_KEY) || "0", 10) || 0;
+      var quiet = Date.now() - lastNote < ZEEKR_NOTIFY_GAP_MS;
       var body =
         tip +
         "\n" +
@@ -396,7 +400,12 @@ var ZEEKR_DEFAULT_CONFIG = {
         body += "\n\n青龙等无法自动抓取的平台，把这行复制过去当 Token：\n" + auth;
         log("[极氪签到] 🔐 可复制给青龙的 Token: " + auth);
       }
-      notify("✅ 极氪 Token 已保存", body);
+      if ((changed || !stored) && !quiet) {
+        storeWrite(String(Date.now()), ZEEKR_NOTIFY_KEY);
+        notify("✅ 极氪 Token 已保存", body);
+      } else {
+        log("[极氪签到] 🔐 已抓到 Token（和存储里相同，不重复通知）");
+      }
     } else {
       log("[极氪签到] ⚠️ 这条请求没有 Authorization 头，未抓取");
     }

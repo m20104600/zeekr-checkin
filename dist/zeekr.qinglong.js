@@ -36,7 +36,7 @@ var ZEEKR_DEFAULT_CONFIG = {};
  * 依赖注入：RT = { platform, env, http(), notify(), log(), finish() }
  * ========================================================================== */
 
-var ZEEKR_PORT_VERSION = "3.1.0";
+var ZEEKR_PORT_VERSION = "3.2.0";
 /* 签名密钥由 build.py 从本地 checkin.mjs 抽取后注入（避免密钥出现在源码/终端里被安全屏蔽器打码） */
 var ZEEKR_SECRET = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCz09z6e9WOcNq+nUMX8Vq1Xe2EmJxuR3XbturefioF)E(Fl";
 var ZEEKR_BASE = "https://api-gw-toc.zeekrlife.com";
@@ -268,6 +268,9 @@ function zeekrCSTDate(ms) {
 
 /* ---------------- 参数读取 ---------------- */
 
+/* 抓取通知最短间隔（毫秒）：同一时间窗口内最多一条，防止"开一次 App 弹几十条" */
+var ZEEKR_NOTIFY_GAP_MS = 60 * 1000;
+
 /**
  * 读一个布尔开关（跨客户端都一样）：
  *   - 大小写不敏感、前缀 ZEEKR_ 可有可无、值能带引号
@@ -428,7 +431,7 @@ function zeekrLoadConfig(RT) {
     cfg.mode = "all";
   // 抓取开关：只认 CAPOFF（停止抓取）。刻意不看 CAPON ——
   // 客户端模块里残留的 CAPON=false 会把抓取永久关掉（2026-09-19 踩过这个坑）。
-  cfg.capOff = zeekrReadFlag(v, ["CAPOFF"], false);
+  cfg.capOff = zeekrReadFlag(v, ["CAPOFF", "NOCAP", "CAPSTOP", "STOPCAP", "CAP_OFF"], false);
   cfg.captureEnabled = !cfg.capOff;
   return cfg;
 }

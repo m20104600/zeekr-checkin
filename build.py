@@ -20,7 +20,7 @@ import pathlib
 ROOT = pathlib.Path(__file__).resolve().parent
 # 脚本版本：改行为就抬一下，它会出现在抓取通知 / 参数自检 / 任务通知里，
 # 用户一眼就能判断手机上跑的是不是最新脚本（Egern 等客户端会缓存脚本）。
-VERSION = "3.1.0"
+VERSION = "3.2.0"
 CORE_FILE = ROOT / "parts" / "core.js"
 # 本机开发环境里的密钥来源（可选，仓库被克隆到别处时不存在也能构建）
 LOCAL_SKILL_SRC = pathlib.Path(

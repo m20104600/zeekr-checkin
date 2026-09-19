@@ -35,7 +35,7 @@
  * 依赖注入：RT = { platform, env, http(), notify(), log(), finish() }
  * ========================================================================== */
 
-var ZEEKR_PORT_VERSION = "3.1.0";
+var ZEEKR_PORT_VERSION = "3.2.0";
 /* 签名密钥由 build.py 从本地 checkin.mjs 抽取后注入（避免密钥出现在源码/终端里被安全屏蔽器打码） */
 var ZEEKR_SECRET = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCz09z6e9WOcNq+nUMX8Vq1Xe2EmJxuR3XbturefioF)E(Fl";
 var ZEEKR_BASE = "https://api-gw-toc.zeekrlife.com";
@@ -267,6 +267,9 @@ function zeekrCSTDate(ms) {
 
 /* ---------------- 参数读取 ---------------- */
 
+/* 抓取通知最短间隔（毫秒）：同一时间窗口内最多一条，防止"开一次 App 弹几十条" */
+var ZEEKR_NOTIFY_GAP_MS = 60 * 1000;
+
 /**
  * 读一个布尔开关（跨客户端都一样）：
  *   - 大小写不敏感、前缀 ZEEKR_ 可有可无、值能带引号
@@ -427,7 +430,7 @@ function zeekrLoadConfig(RT) {
     cfg.mode = "all";
   // 抓取开关：只认 CAPOFF（停止抓取）。刻意不看 CAPON ——
   // 客户端模块里残留的 CAPON=false 会把抓取永久关掉（2026-09-19 踩过这个坑）。
-  cfg.capOff = zeekrReadFlag(v, ["CAPOFF"], false);
+  cfg.capOff = zeekrReadFlag(v, ["CAPOFF", "NOCAP", "CAPSTOP", "STOPCAP", "CAP_OFF"], false);
   cfg.captureEnabled = !cfg.capOff;
   return cfg;
 }
@@ -1233,6 +1236,7 @@ export default async function (ctx) {
 
   /* ── 持久化存储 + Token 自动抓取 ─────────────────────────────────────── */
   var ZEEKR_STORE_KEY = "zeekr_val";
+  var ZEEKR_NOTIFY_KEY = "zeekr_cap_last"; // 上次弹抓取通知的时间戳（防刷屏用）
 
   function storeRead(key) {
     try {
@@ -1269,7 +1273,7 @@ export default async function (ctx) {
   if (ctx.request && ctx.request.headers) {
     // 抓取开关：只认「停止抓取」= ZEEKR_CAPOFF（true）。
     // 刻意不看 CAPON —— 模块里残留的 CAPON=false 会让抓取永久失效（2026-09-19 踩过）。
-    if (zeekrReadFlag(env, ["CAPOFF", "NOCAP"], false)) {
+    if (zeekrReadFlag(env, ["CAPOFF", "NOCAP", "CAPSTOP", "STOPCAP", "CAP_OFF"], false)) {
       log("[极氪签到] 抓取已关闭（ZEEKR_CAPOFF=true），跳过本次抓取");
       return;
     }
@@ -1304,9 +1308,12 @@ export default async function (ctx) {
         // 回读确认（有些运行环境在请求脚本里不允许写存储）
         backEg = zeekrTokenFromStore(storeRead());
       }
-      // 抓到就通知（开关没关就一定有反馈，不会"明明抓到了却什么也没看到"）
+      // 通知策略：① 只有 Token 变化（或存储里本来没有）才通知 —— 避免开一次 App 弹几十条；
+      //           ② 60 秒内最多一条 —— 存储写失败等异常情况下也不会刷屏。
       var storedEg = backEg === auth;
       var changedEg = prevEg !== auth;
+      var lastNoteEg = parseInt(storeRead(ZEEKR_NOTIFY_KEY) || "0", 10) || 0;
+      var quietEg = Date.now() - lastNoteEg < ZEEKR_NOTIFY_GAP_MS;
       var showTokEg = zeekrReadFlag(env, ["CAPSHOW"], true);
       var ruleNameEg = (ctx && ctx.script && ctx.script.name) || "";
       var tiEg = zeekrParseToken(auth);
@@ -1338,10 +1345,15 @@ export default async function (ctx) {
         bodyEg += "\n\n青龙等抓不了的平台，把这行复制过去当 Token：\n" + auth;
         log("[极氪签到] 🔐 可复制给青龙的 Token: " + auth);
       }
-      try {
-        ctx.notify({ title: "✅ 极氪 Token 已保存", body: bodyEg });
-      } catch (eNote) {
-        log("[极氪签到] ⚠️ 通知失败: " + eNote);
+      if ((changedEg || !storedEg) && !quietEg) {
+        storeWrite(String(Date.now()), ZEEKR_NOTIFY_KEY);
+        try {
+          ctx.notify({ title: "✅ 极氪 Token 已保存", body: bodyEg });
+        } catch (eNote) {
+          log("[极氪签到] ⚠️ 通知失败: " + eNote);
+        }
+      } else {
+        log("[极氪签到] 🔐 已抓到 Token（和存储里相同，不重复通知）");
       }
     } else {
       log("[极氪签到] ⚠️ 这条请求没有 Authorization 头，未抓取");

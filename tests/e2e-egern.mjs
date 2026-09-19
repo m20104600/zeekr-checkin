@@ -196,16 +196,38 @@ console.log("\n== D. 抓取开关 + 通知（默认=抓；开关打开=不抓）
   check("D1 通知里带完整 Token", (n1[0].body || "").indexOf(bearer) >= 0);
   check("D1 通知里带到期时间", /有效期至 \d{4}\//.test(n1[0].body || ""));
 
-  // D2: 同一个 Token 再抓一次 → 仍然通知（不再静默，避免"其实抓到了却看不到"）
+  // D2: 同一个 Token 再抓一次（同一场 App 会话里 App 会发几十条请求）→ 不再重复通知，避免刷屏
   const n2 = [];
-  const c2 = makeCtx({}, s1, [], n2);
+  const logsD2 = [];
+  const c2 = makeCtx({}, s1, logsD2, n2);
   c2.request = mkReq();
+  sink = logsD2;
   await run(c2);
-  check("D2 Token 相同也照样通知（不静默）", n2.length === 1 && (n2[0].body || "").indexOf(bearer) >= 0, JSON.stringify(n2.map((x) => x.title)));
-  check("D2 说明是同一个 Token", (n2[0].body || "").indexOf("和上次抓到的一样") >= 0);
+  sink = null;
+  check("D2 Token 没变化 → 不再重复通知（不刷屏）", n2.length === 0, JSON.stringify(n2.map((x) => x.title)));
+  check("D2 但不重复通知只影响通知，存储照旧", !!JSON.parse(s1.zeekr_val).authorization);
+  check("D2 日志说明与存储相同、不重复通知", logsD2.some((l) => l.indexOf("不重复通知") >= 0), logsD2.slice(-1)[0]);
 
-  // D3: 不再写额外的节流键（上一版的复杂度已移除）
-  check("D3 只写 zeekr_val，不写多余键", Object.keys(s1).length === 1 && !!s1.zeekr_val, JSON.stringify(Object.keys(s1)));
+  // D3: 60 秒防刷屏护栏 —— 即使 Token 变了，短时间内也只报一条
+  const s3 = { zeekr_val: s1.zeekr_val, zeekr_cap_last: String(Date.now()) };
+  const n3 = [];
+  const c3 = makeCtx({}, s3, [], n3);
+  c3.request = mkReq();
+  await run(c3);
+  check("D3 60 秒内最多一条抓取通知（防刷屏护栏）", n3.length === 0, JSON.stringify(n3.map((x) => x.title)));
+
+  // D3b: 上次通知已过 5 分钟 + Token 变了 → 正常通知
+  const s3b = { zeekr_val: s1.zeekr_val, zeekr_cap_last: String(Date.now() - 5 * 60 * 1000) };
+  const n3b = [];
+  const c3b = makeCtx({}, s3b, [], n3b);
+  const otherTok = bearer.slice(0, -1) + "x";
+  c3b.request = {
+    method: "GET",
+    url: "https://api-gw-toc.zeekrlife.com/zeekrlife-app-user/v1/user/info/query",
+    headers: { get: (n) => (String(n).toLowerCase() === "authorization" ? otherTok : null), authorization: otherTok },
+  };
+  await run(c3b);
+  check("D3b 超过 1 分钟且 Token 变化 → 正常通知", n3b.length === 1, JSON.stringify(n3b.map((x) => x.title)));
 
   // D4: 参数自检 → 报出「定时任务用哪个 Token」+ 完整 Token + 「留空即可」说明
   const n4 = [];

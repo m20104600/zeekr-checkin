@@ -46,7 +46,7 @@ scriptings:
       update_interval: 600
       timeout: 20
       env:
-        ZEEKR_CAPDEBUG: "true"
+        ZEEKR_CAPDEBUG: "false"   # 改 true 会每条命中都弹通知（几百条都可能），排查完记得关
         ZEEKR_CAPSHOW: "true"
 
   # 响应阶段兜底（有些路径请求阶段拿不到头，响应阶段再试一次）
@@ -57,5 +57,5 @@ scriptings:
       update_interval: 600
       timeout: 20
       env:
-        ZEEKR_CAPDEBUG: "true"
+        ZEEKR_CAPDEBUG: "false"   # 改 true 会每条命中都弹通知（几百条都可能），排查完记得关
         ZEEKR_CAPSHOW: "true"

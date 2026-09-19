@@ -236,6 +236,9 @@ function zeekrCSTDate(ms) {
 
 /* ---------------- 参数读取 ---------------- */
 
+/* 抓取通知最短间隔（毫秒）：同一时间窗口内最多一条，防止"开一次 App 弹几十条" */
+var ZEEKR_NOTIFY_GAP_MS = 60 * 1000;
+
 /**
  * 读一个布尔开关（跨客户端都一样）：
  *   - 大小写不敏感、前缀 ZEEKR_ 可有可无、值能带引号
@@ -396,7 +399,7 @@ function zeekrLoadConfig(RT) {
     cfg.mode = "all";
   // 抓取开关：只认 CAPOFF（停止抓取）。刻意不看 CAPON ——
   // 客户端模块里残留的 CAPON=false 会把抓取永久关掉（2026-09-19 踩过这个坑）。
-  cfg.capOff = zeekrReadFlag(v, ["CAPOFF"], false);
+  cfg.capOff = zeekrReadFlag(v, ["CAPOFF", "NOCAP", "CAPSTOP", "STOPCAP", "CAP_OFF"], false);
   cfg.captureEnabled = !cfg.capOff;
   return cfg;
 }

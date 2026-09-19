@@ -110,7 +110,7 @@ def main() -> int:
         path = dist / out_name
         path.write_text(out, encoding="utf-8")
         leak = "__ZEEKR_SECRET__" in out
-        print(f"写入 {path} ({len(out)} 字节, {out.count(chr(10)) + 1} 行)"
+        print(f"写入 {path} ({len(out.encode())} 字节 / {len(out)} 字符, {out.count(chr(10)) + 1} 行)"
               + ("  ⚠️ 占位符未替换！" if leak else ""))
         ok = check(path, esm=out_name.endswith(".egern.js")) and ok
 

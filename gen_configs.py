@@ -454,6 +454,6 @@ if __name__ == "__main__":
         p.write_text(text, encoding="utf-8")
         bad = text.count("\\\\/") + text.count("\\\\.")
         print(
-            f"写入 {p} ({len(text)} 字节) 占位符 {text.count(PH)} 处"
+            f"写入 {p} ({len(text.encode())} 字节 / {len(text)} 字符) 占位符 {text.count(PH)} 处"
             + (f"  ⚠️ 双反斜杠残留 {bad} 处" if bad else "")
         )

@@ -316,7 +316,8 @@ var ZEEKR_DEFAULT_CONFIG = {
     : !scriptType && typeof $request !== "undefined" && !!$request && !!$request.headers;
 
   if (inRewrite) {
-    // 抓取开关（CAPON=0/false/off 时不抓）：抓过一次就能关掉，免得每次开 App 都写存储/弹通知。
+    // 抓取开关：只认 CAPOFF（「停止抓取」打开时跳过）。刻意不看 CAPON —— 客户端里残留的
+    // CAPON=false 会把抓取永久关掉（2026-09-19 踩过这个坑）。抓过一次就能关掉，免得每次开 App 都写存储/弹通知。
     // 客户端关法：Egern 模块设置 / Loon 插件参数 / QX 的 # 参数 / Stash 的 argument。
     if (zeekrReadFlag(env, ["CAPOFF", "NOCAP"], false)) {
       log("[极氪签到] 抓取已关闭（CAPOFF=1 / 「停止抓取」开关已打开），跳过本次抓取");

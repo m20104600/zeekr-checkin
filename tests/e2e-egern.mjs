@@ -9,6 +9,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distSrc = fs.readFileSync(path.join(__dirname, "..", "dist", "zeekr.egern.js"), "utf8");
+/* 版本号只在 parts/core.js 定义一处 —— 断言从成品里读，避免每次升版本都要改测试 */
+const PORT_VERSION = (distSrc.match(/ZEEKR_PORT_VERSION\s*=\s*"([^"]+)"/) || [])[1] || "?";
 const mod = await import(path.join(__dirname, "..", "dist", "zeekr.egern.js"));
 const run = mod.default;
 
@@ -226,7 +229,7 @@ await run(ctxD2);
 sink = null;
 check("开关=开：抓到并写入存储", !!storeD2.zeekr_val && JSON.parse(storeD2.zeekr_val).authorization === bearer, JSON.stringify(storeD2));
 const nD2 = notifiesD2[0] || {};
-check("通知里标明「抓取开关：开」+ 脚本版本", String(nD2.body || "").indexOf("抓取开关：开") >= 0 && String(nD2.body || "").indexOf("脚本 v2.1.0") >= 0, String(nD2.body || "").slice(0, 120));
+check("通知里标明「抓取开关：开」+ 脚本版本", String(nD2.body || "").indexOf("抓取开关：开") >= 0 && String(nD2.body || "").indexOf("脚本 v" + PORT_VERSION) >= 0, String(nD2.body || "").slice(0, 120));
 check("通知带「点击复制 Token」action", !!nD2.action && nD2.action.type === "clipboard" && nD2.action.text === bearer, JSON.stringify(nD2.action));
 
 // D3 门控：同一 Token + 刚弹过 → 静默；11 分钟前弹过 → 再弹一条（标题标「未变化」）

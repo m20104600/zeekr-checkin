@@ -95,6 +95,9 @@ def main() -> int:
     core = CORE_FILE.read_text(encoding="utf-8")
     if "__ZEEKR_SECRET__" not in core:
         sys.exit("parts/core.js 里没有 __ZEEKR_SECRET__ 占位符，无法注入密钥")
+    m = re.search(r'ZEEKR_PORT_VERSION\s*=\s*"([^"]+)"', core)
+    version = m.group(1) if m else "?"
+    print(f"脚本版本（来自 parts/core.js）: {version}")
 
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
@@ -106,7 +109,7 @@ def main() -> int:
         out = tpl.replace("/*__CORE__*/", core.rstrip("\n")).replace(
             "__ZEEKR_SECRET__", secret
         )
-        out = out.replace("__ZEEKR_PORT_VERSION__", "2.0.0")
+        out = out.replace("__ZEEKR_PORT_VERSION__", version)  # 版本只在 core.js 定义一处
         path = dist / out_name
         path.write_text(out, encoding="utf-8")
         leak = "__ZEEKR_SECRET__" in out

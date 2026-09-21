@@ -36,7 +36,7 @@ var ZEEKR_DEFAULT_CONFIG = {};
  * 依赖注入：RT = { platform, env, http(), notify(), log(), finish() }
  * ========================================================================== */
 
-var ZEEKR_PORT_VERSION = "2.1.0";
+var ZEEKR_PORT_VERSION = "2.2.0";
 /* 签名密钥由 build.py 从本地 checkin.mjs 抽取后注入（避免密钥出现在源码/终端里被安全屏蔽器打码） */
 var ZEEKR_SECRET = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCz09z6e9WOcNq+nUMX8Vq1Xe2EmJxuR3XbturefioF)E(Fl";
 var ZEEKR_BASE = "https://api-gw-toc.zeekrlife.com";
@@ -698,6 +698,34 @@ async function zeekrGetUncollected(ctx) {
   return { debrisList: debrisList, walkList: walkList, integralList: integralList };
 }
 
+/* 2026-09-21 加：把服务端返回的失败原因取出来（字段名不固定，都试一遍）——
+   旧版把原因整个丢掉，导致「通知说领完了、App 里还在」查不出原因。 */
+function zeekrFailReason(rec, fallback) {
+  if (!rec || typeof rec !== "object") return (fallback || "") + "";
+  var keys = ["msg", "message", "errorMsg", "remark"];
+  for (var i = 0; i < keys.length; i++) {
+    if (rec[keys[i]]) return String(rec[keys[i]]);
+  }
+  if (typeof rec.code === "string" && rec.code) return rec.code;
+  return (fallback || JSON.stringify(rec).slice(0, 160)) + "";
+}
+
+function zeekrCountKeys(obj) {
+  var n = 0;
+  for (var k in obj) if (Object.prototype.hasOwnProperty.call(obj, k)) n++;
+  return n;
+}
+
+function zeekrFailedList(obj) {
+  var out = [];
+  for (var k in obj) if (Object.prototype.hasOwnProperty.call(obj, k)) out.push(obj[k]);
+  return out;
+}
+
+function zeekrMergeFailed(target, list) {
+  for (var i = 0; i < (list || []).length; i++) target[list[i].id] = list[i];
+}
+
 function zeekrDebrisName(r) {
   var snap = r && r.invoice && r.invoice.materialSnapshot;
   var name = (snap && snap.name) || "碎片";
@@ -705,8 +733,16 @@ function zeekrDebrisName(r) {
   return fragment ? name + "(" + fragment + ")" : name;
 }
 
+/**
+ * 批量领取碎片（与 App 一致：一次 batchApply 提交全部）；失败则**真的**逐个重试。
+ *
+ * ⚠️ 2026-09-21 修（真事故）：旧版遇到「批量里有 1 个失败」时只打了一句「逐个重试」
+ * 的日志、**实际没有重试**，失败原因还被整个丢掉 —— 于是通知写「可取皆已领完」，
+ * App 里那张碎片还在，只能手动领。现在返回 { claimed: [], failed: [{id,label,reason}] }，
+ * 由 zeekrClaimAll 决定「下一轮再试」还是「进通知」。
+ */
 async function zeekrClaimDebris(ctx, debrisList) {
-  if (!debrisList.length) return [];
+  if (!debrisList.length) return { claimed: [], failed: [] };
   var toCmd = function (item) {
     return {
       record: item.eventCode,
@@ -714,50 +750,70 @@ async function zeekrClaimDebris(ctx, debrisList) {
       applyExt: { origin: item.sourceId },
     };
   };
-  var results = [];
+  var labelOf = function (item) {
+    return String(item.sourceId || item.sceneRemark || item.id);
+  };
+
+  var claimed = [];
+  var pending = [];
   var data = await zeekrPost(ctx, ZEEKR_API.claimDebris, {
     applyCmdList: debrisList.map(toCmd),
   });
   if (data.code === "000000" && Object.prototype.toString.call(data.data) === "[object Array]") {
     for (var i = 0; i < data.data.length; i++) {
       var r = data.data[i];
-      if (r && r.success) results.push(zeekrDebrisName(r));
+      var item = debrisList[i] || {};
+      if (r && r.success) claimed.push(zeekrDebrisName(r));
+      else pending.push({ item: item, reason: zeekrFailReason(r, data.msg || "") });
     }
-    var failed = 0;
-    for (var j = 0; j < data.data.length; j++) if (!data.data[j].success) failed++;
-    if (failed) ctx.out("⚠️ 批量领取有 " + failed + " 个失败，逐个重试");
+    if (pending.length)
+      ctx.out("⚠️ 批量领取有 " + pending.length + " 个失败，改为逐个重试");
   } else {
     ctx.out(
       "⚠️ 批量领取碎片失败（" +
         (data.msg || JSON.stringify(data)) +
         "），改为逐个领取"
     );
-    for (var k = 0; k < debrisList.length; k++) {
-      var one = await zeekrPost(ctx, ZEEKR_API.claimDebris, {
-        applyCmdList: [toCmd(debrisList[k])],
-      });
-      if (one.code === "000000" && Object.prototype.toString.call(one.data) === "[object Array]") {
-        for (var q = 0; q < one.data.length; q++)
-          if (one.data[q] && one.data[q].success)
-            results.push(zeekrDebrisName(one.data[q]));
-      } else {
-        ctx.out(
-          "❌ 碎片领取失败（" +
-            (debrisList[k].sourceId || debrisList[k].id) +
-            "）: " +
-            (one.msg || "")
-        );
-      }
-      await zeekrSleep(zeekrRand(800, 1500));
-    }
+    for (var k = 0; k < debrisList.length; k++)
+      pending.push({ item: debrisList[k], reason: (data.msg || "批量接口返回异常") + "" });
   }
-  if (results.length) ctx.out("🧩 碎片奖励: " + results.join("、"));
-  return results;
+
+  var failed = [];
+  for (var p = 0; p < pending.length; p++) {
+    var it = pending[p].item;
+    var one = await zeekrPost(ctx, ZEEKR_API.claimDebris, {
+      applyCmdList: [toCmd(it)],
+    });
+    var arr = one.data;
+    var isArr = Object.prototype.toString.call(arr) === "[object Array]";
+    var anyOk = false;
+    if (one.code === "000000" && isArr) {
+      for (var q = 0; q < arr.length; q++) {
+        if (arr[q] && arr[q].success) {
+          anyOk = true;
+          claimed.push(zeekrDebrisName(arr[q]));
+        }
+      }
+    }
+    if (!anyOk) {
+      var why = zeekrFailReason(
+        isArr && arr.length ? arr[0] : null,
+        one.msg || pending[p].reason
+      );
+      ctx.out("❌ 碎片领取失败（" + labelOf(it) + "）: " + why);
+      failed.push({ id: it.id, label: labelOf(it), reason: why });
+    }
+    await zeekrSleep(zeekrRand(800, 1500));
+  }
+  if (claimed.length) ctx.out("🧩 碎片奖励: " + claimed.join("、"));
+  return { claimed: claimed, failed: failed };
 }
 
+/* 领取能量球。返回 { val, failed }（失败要能被重试/上报，不能再静默吞掉）。 */
 async function zeekrClaimWalk(ctx, walkList) {
-  if (!walkList.length) return 0;
+  if (!walkList.length) return { val: 0, failed: [] };
   var total = 0;
+  var failed = [];
   for (var i = 0; i < walkList.length; i++) {
     var it = walkList[i];
     var val = it.val || 0;
@@ -766,16 +822,20 @@ async function zeekrClaimWalk(ctx, walkList) {
       total += val;
       ctx.out("♻️ 能量球已领: +" + val);
     } else {
-      ctx.out("❌ 能量球领取失败: " + (data.msg || JSON.stringify(data)));
+      var why = (data.msg || JSON.stringify(data)) + "";
+      ctx.out("❌ 能量球领取失败（" + val + "g）: " + why);
+      failed.push({ id: it.id, label: val + "g 能量球", reason: why.slice(0, 160) });
     }
     await zeekrSleep(zeekrRand(800, 1500));
   }
-  return total;
+  return { val: total, failed: failed };
 }
 
+/* 领取极值。返回 { val, failed }。 */
 async function zeekrClaimIntegral(ctx, integralList) {
-  if (!integralList.length) return 0;
+  if (!integralList.length) return { val: 0, failed: [] };
   var total = 0;
+  var failed = [];
   for (var i = 0; i < integralList.length; i++) {
     var it = integralList[i];
     var val = it.val || 0;
@@ -786,11 +846,13 @@ async function zeekrClaimIntegral(ctx, integralList) {
       total += val;
       ctx.out("🏆 极值已领: +" + val);
     } else {
-      ctx.out("❌ 极值领取失败: " + (data.msg || JSON.stringify(data)));
+      var why = (data.msg || JSON.stringify(data)) + "";
+      ctx.out("❌ 极值领取失败（" + val + "）: " + why);
+      failed.push({ id: it.id, label: val + " 极值", reason: why.slice(0, 160) });
     }
     await zeekrSleep(zeekrRand(800, 1500));
   }
-  return total;
+  return { val: total, failed: failed };
 }
 
 function zeekrParseWaits(str) {
@@ -817,6 +879,9 @@ async function zeekrClaimAll(ctx, cfg) {
   var maxMs = cfg.max * 1000;
   var startedAt = Date.now();
   var claimed = {};
+  var attempts = {}; /* id → 已尝试次数：失败项下一轮再试，不再"领之前就记成已领" */
+  var failedMap = {}; /* id → { id, label, reason }：领失败且还没领到的项 */
+  var maxAttempts = 3;
   var debrisCount = 0,
     walkVal = 0,
     integralVal = 0,
@@ -831,6 +896,33 @@ async function zeekrClaimAll(ctx, cfg) {
         out.push(list[i]);
     return out;
   };
+  /* 本轮还能尝试的项（每项最多 maxAttempts 次） */
+  var bump = function (list) {
+    var todo = [];
+    for (var i = 0; i < list.length; i++) {
+      var key = list[i].id;
+      var n = (attempts[key] || 0) + 1;
+      attempts[key] = n;
+      if (n <= maxAttempts) todo.push(list[i]);
+    }
+    return todo;
+  };
+  /* 只有**确实领到**的项才记成已领（旧版领之前就记，失败后永不重试） */
+  var settle = function (list, failList) {
+    for (var i = 0; i < list.length; i++) {
+      var bad = false;
+      for (var j = 0; j < (failList || []).length; j++) {
+        if (failList[j].id === list[i].id) {
+          bad = true;
+          break;
+        }
+      }
+      if (!bad) {
+        claimed[list[i].id] = 1;
+        delete failedMap[list[i].id];
+      }
+    }
+  };
 
   while (true) {
     round++;
@@ -840,17 +932,50 @@ async function zeekrClaimAll(ctx, cfg) {
     var g = fresh(got.integralList);
     var elapsed = Date.now() - startedAt;
 
-    if (!d.length && !w.length && !g.length) {
+    var wTry = bump(w),
+      gTry = bump(g),
+      dTry = bump(d);
+
+    if (!wTry.length && !gTry.length && !dTry.length) {
+      if (d.length || w.length || g.length) {
+        /* 列表里还有东西，但都重试到上限了 —— 绝不能报「已领完」 */
+        var left = d.concat(w).concat(g);
+        for (var a1 = 0; a1 < left.length; a1++) {
+          if (!failedMap[left[a1].id]) {
+            failedMap[left[a1].id] = {
+              id: left[a1].id,
+              label: String(left[a1].sourceId || left[a1].sceneRemark || left[a1].id),
+              reason: "重试 " + maxAttempts + " 次仍未领到",
+            };
+          }
+        }
+        conclusion =
+          "⚠️ 仍有 " +
+          zeekrCountKeys(failedMap) +
+          " 项未领到（每项已重试 " +
+          maxAttempts +
+          " 次）";
+        break;
+      }
       emptyStreak++;
       var sinceClaim = Date.now() - (lastClaimAt || startedAt);
       if (!cfg.poll || (emptyStreak >= silentRounds && sinceClaim >= minSettleMs)) {
-        conclusion = cfg.poll
-          ? "✅ 复查确认：可取皆已领完（共 " +
-            round +
-            " 轮 / " +
-            Math.round(elapsed / 1000) +
-            "s）"
-          : "✅ 本次查询无待领取奖励";
+        if (zeekrCountKeys(failedMap)) {
+          var fparts = [];
+          var flist = zeekrFailedList(failedMap);
+          for (var f1 = 0; f1 < flist.length; f1++)
+            fparts.push(flist[f1].label + "(" + flist[f1].reason + ")");
+          conclusion =
+            "⚠️ 复查结束，但仍有 " + flist.length + " 项领取失败：" + fparts.join("、");
+        } else {
+          conclusion = cfg.poll
+            ? "✅ 复查确认：可取皆已领完（共 " +
+              round +
+              " 轮 / " +
+              Math.round(elapsed / 1000) +
+              "s）"
+            : "✅ 本次查询无待领取奖励";
+        }
         break;
       }
       var waitTry =
@@ -862,18 +987,32 @@ async function zeekrClaimAll(ctx, cfg) {
       }
       ctx.vlog("第 " + round + " 轮暂无可领（已观察 " + Math.round(elapsed / 1000) + "s）...");
     } else {
-      for (var i1 = 0; i1 < w.length; i1++) claimed[w[i1].id] = 1;
-      walkVal += await zeekrClaimWalk(ctx, w);
-      for (var i2 = 0; i2 < g.length; i2++) claimed[g[i2].id] = 1;
-      integralVal += await zeekrClaimIntegral(ctx, g);
-      for (var i3 = 0; i3 < d.length; i3++) claimed[d[i3].id] = 1;
-      debrisCount += (await zeekrClaimDebris(ctx, d)).length;
+      /* ⚠️ 2026-09-21 修：旧版在**领取之前**就把 id 记进 claimed，一次失败就永不重试，
+         列表还会被过滤成空 → 打出「✅ 可取皆已领完」而东西仍在。 */
+      var rw = await zeekrClaimWalk(ctx, wTry);
+      walkVal += rw.val || 0;
+      settle(wTry, rw.failed);
+      zeekrMergeFailed(failedMap, rw.failed);
+
+      var rg = await zeekrClaimIntegral(ctx, gTry);
+      integralVal += rg.val || 0;
+      settle(gTry, rg.failed);
+      zeekrMergeFailed(failedMap, rg.failed);
+
+      var rd = await zeekrClaimDebris(ctx, dTry);
+      debrisCount += (rd.claimed || []).length;
+      settle(dTry, rd.failed);
+      zeekrMergeFailed(failedMap, rd.failed);
+
       emptyStreak = 0;
       lastClaimAt = Date.now();
     }
 
     if (!cfg.poll) {
-      conclusion = "✅ 已领取一轮（延迟入账的奖励由稍后的「只领取」任务补上）";
+      var nfail = zeekrCountKeys(failedMap);
+      conclusion = nfail
+        ? "⚠️ 未领净 " + nfail + " 项（稍后的「只领取」任务会再试）"
+        : "✅ 已领取一轮（延迟入账的奖励由稍后的「只领取」任务补上）";
       break;
     }
 
@@ -892,6 +1031,7 @@ async function zeekrClaimAll(ctx, cfg) {
     walkVal: walkVal,
     integralVal: integralVal,
     rounds: round,
+    failed: zeekrFailedList(failedMap),
   };
 }
 
@@ -1043,6 +1183,7 @@ async function zeekrMain(RT) {
         walkVal: res.walkVal + again.walkVal,
         integralVal: res.integralVal + again.integralVal,
         rounds: res.rounds + again.rounds,
+        failed: again.failed || [],
       };
     }
   }
@@ -1055,7 +1196,19 @@ async function zeekrMain(RT) {
       ", 极值 +" +
       res.integralVal
   );
-  ctx.out("🎉 全部完成！");
+  var failures = res.failed || [];
+  if (failures.length) {
+    /* 还有没领掉的：正文写清楚、标题也要能一眼看出来，别再写「全部完成」 */
+    var fmsg = [];
+    for (var f2 = 0; f2 < failures.length; f2++)
+      fmsg.push((failures[f2].label || "") + "→" + (failures[f2].reason || ""));
+    ctx.out(
+      "⚠️ 未领净 " + failures.length + " 项（稍后的补领任务会再试）：" + fmsg.join("；")
+    );
+    if (ctx.ok) title = "⚠️ 极氪签到（未领净）" + (cfg.tag ? "（" + cfg.tag + "）" : "");
+  } else {
+    ctx.out("🎉 全部完成！");
+  }
   send();
   return { ok: ctx.ok, lines: lines, result: res };
 }

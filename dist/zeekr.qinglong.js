@@ -36,7 +36,7 @@ var ZEEKR_DEFAULT_CONFIG = {};
  * 依赖注入：RT = { platform, env, http(), notify(), log(), finish() }
  * ========================================================================== */
 
-var ZEEKR_PORT_VERSION = "2.2.0";
+var ZEEKR_PORT_VERSION = "2.3.0";
 /* 签名密钥由 build.py 从本地 checkin.mjs 抽取后注入（避免密钥出现在源码/终端里被安全屏蔽器打码） */
 var ZEEKR_SECRET = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCz09z6e9WOcNq+nUMX8Vq1Xe2EmJxuR3XbturefioF)E(Fl";
 var ZEEKR_BASE = "https://api-gw-toc.zeekrlife.com";
@@ -49,12 +49,15 @@ var ZEEKR_API = {
   fabulous: "/zeekrlife-bbs-theme/v1/clicks/fabulous",
   uncollected: "/zeekrlife-mp-val/v1/carEnergy/getUncollectedBallsPageNew",
   claimDebris: "/zeekrlife-mp-mkt/toc/v1/apply/batchApply",
+  claimSevenDayLottery: "/zeekrlife-mp-mkt/toc/v1/applyV2/apply",
   claimWalk: "/zeekrlife-mp-val/v1/carEnergy/collectedAllEnergy",
   claimIntegral: "/zeekrlife-mp-val/v1/carEnergy/collectIntegralZeekrBalls",
 };
 var ZEEKR_VAL_DEBRIS = "DEBRIS";
 var ZEEKR_VAL_WALK = "CARBON_VALUE";
 var ZEEKR_VAL_INTEGRAL = "ZEEKR_VALUE";
+var ZEEKR_SCENE_SEVEN_DAY_LOTTERY = "SIGN_CONTINUOUS_7_LOTTERY";
+var ZEEKR_RECORD_SEVEN_DAY_LOTTERY = "zgreen_7day_activity";
 var ZEEKR_TASK_ARTICLE = "阅读文章";
 var ZEEKR_TASK_WALK = "步行3000步";
 var ZEEKR_TASK_PRAISE = "每周点赞帖子";
@@ -351,6 +354,16 @@ function zeekrNormKey(k) {
     .toUpperCase();
 }
 
+function zeekrDeviceIdFromStore(raw) {
+  if (!raw) return "";
+  try {
+    var o = typeof raw === "string" && raw.charAt(0) === "{" ? JSON.parse(raw) : null;
+    return o && o.device_id ? String(o.device_id) : "";
+  } catch (e) {
+    return "";
+  }
+}
+
 function zeekrLoadConfig(RT) {
   var raw = RT.env || {};
   var v = {};
@@ -367,6 +380,7 @@ function zeekrLoadConfig(RT) {
   };
   var cfg = {
     token: str("TOKEN", ""),
+    deviceId: str("DEVICE_ID", ""),
     mode: str("MODE", "all").toLowerCase(),
     tag: str("TAG", ""),
     stepsRaw: str("STEPS", ""),
@@ -393,6 +407,7 @@ function zeekrLoadConfig(RT) {
     // 兼容常见极氪脚本的 zeekr_val / ZEEKR_VAL（值是 {"authorization":"Bearer ..."}）
     var one = zeekrTokenFromStore(v["VAL"]);
     if (one) toks = [one];
+    if (!cfg.deviceId) cfg.deviceId = zeekrDeviceIdFromStore(v["VAL"]);
   }
   cfg.tokens = toks.length ? toks : [];
   cfg.token = cfg.tokens[0] || "";
@@ -459,7 +474,7 @@ function zeekrHeaders(token, appVersion, deviceId) {
     risk_platform: "h5",
     riskTimeStamp: String(timestamp),
     riskVersion: "1",
-    device_id: deviceId,
+    "device_id": deviceId || "",
     x_gray_code: "gray45",
     AppId: "ONEX97FB91F061405",
     "X-CORS-ONEX97FB91F061405-prod": "1",
@@ -673,29 +688,33 @@ async function zeekrGetUncollected(ctx) {
   });
   if (data.code !== "000000") {
     ctx.out("❌ 查询可领取奖品失败: " + (data.msg || JSON.stringify(data)));
-    return { debrisList: [], walkList: [], integralList: [] };
+    return { debrisList: [], walkList: [], integralList: [], lotteryList: [] };
   }
   var items = (data.data && data.data.uncollectedVal) || [];
   var debrisList = [],
     walkList = [],
-    integralList = [];
+    integralList = [],
+    lotteryList = [];
   for (var i = 0; i < items.length; i++) {
     var it = items[i] || {};
-    if (it.valDefineCode === ZEEKR_VAL_DEBRIS) debrisList.push(it);
+    if (it.sceneCode === ZEEKR_SCENE_SEVEN_DAY_LOTTERY) lotteryList.push(it);
+    else if (it.valDefineCode === ZEEKR_VAL_DEBRIS) debrisList.push(it);
     else if (it.valDefineCode === ZEEKR_VAL_WALK) walkList.push(it);
     else if (it.valDefineCode === ZEEKR_VAL_INTEGRAL) integralList.push(it);
   }
   var summary =
     debrisList.length +
     " 个碎片, " +
+    lotteryList.length +
+    " 个七日抽奖球, " +
     walkList.length +
     " 个能量球, " +
     integralList.length +
     " 个极值";
-  if (debrisList.length || walkList.length || integralList.length)
+  if (debrisList.length || lotteryList.length || walkList.length || integralList.length)
     ctx.out("📦 可领取: " + summary);
   else ctx.vlog("📦 可领取: " + summary);
-  return { debrisList: debrisList, walkList: walkList, integralList: integralList };
+  return { debrisList: debrisList, walkList: walkList, integralList: integralList, lotteryList: lotteryList };
 }
 
 /* 2026-09-21 加：把服务端返回的失败原因取出来（字段名不固定，都试一遍）——
@@ -810,6 +829,37 @@ async function zeekrClaimDebris(ctx, debrisList) {
 }
 
 /* 领取能量球。返回 { val, failed }（失败要能被重试/上报，不能再静默吞掉）。 */
+async function zeekrClaimSevenDayLottery(ctx, lotteryList) {
+  if (!lotteryList.length) return { claimed: [], failed: [] };
+  var claimed = [];
+  var failed = [];
+  for (var i = 0; i < lotteryList.length; i++) {
+    var item = lotteryList[i];
+    var label = String(item.sourceId || item.sceneRemark || "七日连签抽奖球");
+    var data = await zeekrPost(ctx, ZEEKR_API.claimSevenDayLottery, {
+      record: ZEEKR_RECORD_SEVEN_DAY_LOTTERY,
+      fixedZgreenAssetId: item.id,
+      optional: { mappingMsg: true },
+    });
+    var ok = data.code === "000000" && data.data && data.data.success;
+    if (ok) {
+      var prize =
+        (data.data.invoice &&
+          data.data.invoice.materialSnapshot &&
+          data.data.invoice.materialSnapshot.name) ||
+        "七日连签奖励";
+      claimed.push(prize);
+      ctx.out("🎁 七日连签奖励已领: " + prize);
+    } else {
+      var why = zeekrFailReason(data.data, data.msg || "七日连签领取失败");
+      ctx.out("❌ 七日连签奖励领取失败（" + label + "）: " + why);
+      failed.push({ id: item.id, label: label, reason: why });
+    }
+    await zeekrSleep(zeekrRand(1000, 2000));
+  }
+  return { claimed: claimed, failed: failed };
+}
+
 async function zeekrClaimWalk(ctx, walkList) {
   if (!walkList.length) return { val: 0, failed: [] };
   var total = 0;
@@ -883,6 +933,7 @@ async function zeekrClaimAll(ctx, cfg) {
   var failedMap = {}; /* id → { id, label, reason }：领失败且还没领到的项 */
   var maxAttempts = 3;
   var debrisCount = 0,
+    lotteryCount = 0,
     walkVal = 0,
     integralVal = 0,
     emptyStreak = 0,
@@ -930,16 +981,18 @@ async function zeekrClaimAll(ctx, cfg) {
     var d = fresh(got.debrisList);
     var w = fresh(got.walkList);
     var g = fresh(got.integralList);
+    var l = fresh(got.lotteryList);
     var elapsed = Date.now() - startedAt;
 
     var wTry = bump(w),
       gTry = bump(g),
-      dTry = bump(d);
+      dTry = bump(d),
+      lTry = bump(l);
 
-    if (!wTry.length && !gTry.length && !dTry.length) {
-      if (d.length || w.length || g.length) {
+    if (!wTry.length && !gTry.length && !dTry.length && !lTry.length) {
+      if (d.length || w.length || g.length || l.length) {
         /* 列表里还有东西，但都重试到上限了 —— 绝不能报「已领完」 */
-        var left = d.concat(w).concat(g);
+        var left = d.concat(w).concat(g).concat(l);
         for (var a1 = 0; a1 < left.length; a1++) {
           if (!failedMap[left[a1].id]) {
             failedMap[left[a1].id] = {
@@ -1004,6 +1057,11 @@ async function zeekrClaimAll(ctx, cfg) {
       settle(dTry, rd.failed);
       zeekrMergeFailed(failedMap, rd.failed);
 
+      var rl = await zeekrClaimSevenDayLottery(ctx, lTry);
+      lotteryCount += (rl.claimed || []).length;
+      settle(lTry, rl.failed);
+      zeekrMergeFailed(failedMap, rl.failed);
+
       emptyStreak = 0;
       lastClaimAt = Date.now();
     }
@@ -1028,6 +1086,7 @@ async function zeekrClaimAll(ctx, cfg) {
   if (conclusion) ctx.out(conclusion);
   return {
     debrisCount: debrisCount,
+    lotteryCount: lotteryCount,
     walkVal: walkVal,
     integralVal: integralVal,
     rounds: round,
@@ -1080,7 +1139,8 @@ async function zeekrMain(RT) {
 
   var info = zeekrParseToken(cfg.token);
   ctx.accountId = info.accountId;
-  ctx.deviceId = info.deviceId;
+  ctx.loginDeviceId = info.deviceId;
+  ctx.deviceId = cfg.deviceId;
 
   if (cfg.tokens.length > 1) {
     ctx.out("⚠️ 检测到 " + cfg.tokens.length + " 个 Token，本脚本只用第 1 个（多账号请用青龙版）");
@@ -1180,6 +1240,7 @@ async function zeekrMain(RT) {
       });
       res = {
         debrisCount: res.debrisCount + again.debrisCount,
+        lotteryCount: (res.lotteryCount || 0) + (again.lotteryCount || 0),
         walkVal: res.walkVal + again.walkVal,
         integralVal: res.integralVal + again.integralVal,
         rounds: res.rounds + again.rounds,
@@ -1191,6 +1252,8 @@ async function zeekrMain(RT) {
   ctx.out(
     "🏁 本次领取: 碎片 " +
       res.debrisCount +
+      " 个, 七日奖励 " +
+      (res.lotteryCount || 0) +
       " 个, 能量球 +" +
       res.walkVal +
       ", 极值 +" +

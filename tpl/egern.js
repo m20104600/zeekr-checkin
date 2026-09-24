@@ -186,7 +186,7 @@ export default async function (ctx) {
         storeWrite(
           JSON.stringify({
             authorization: auth,
-            device_id: headerGet(ctx.request.headers, "device_id"),
+            "device_id": headerGet(ctx.request.headers, "device_id"),
             ts: Date.now(),
           })
         );
@@ -276,6 +276,9 @@ export default async function (ctx) {
   var storedEg = zeekrTokenFromStore(storeRead());
   if (storedEg) {
     env.ZEEKR_TOKEN = storedEg;
+    env.ZEEKR_DEVICE_ID = zeekrDeviceIdFromStore(storeRead());
+    if (ctx.request && ctx.request.headers)
+      env.ZEEKR_DEVICE_ID = headerGet(ctx.request.headers, "device_id") || "";
     log("[极氪签到] 🔐 使用抓取到的 Token（持久化存储 zeekr_val）");
   } else {
     log(

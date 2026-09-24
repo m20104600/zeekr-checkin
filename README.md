@@ -224,6 +224,8 @@ python3 tests/e2e-qinglong.py # 22 项：真跑青龙脚本（多账号、zeekr_
 
 ## 更新记录
 
+- **2026-09-25（v2.3.0）**：修七日连签抽奖球领取 —— `SIGN_CONTINUOUS_7_LOTTERY` 不再按普通碎片走 `batchApply`，改用 App 抓包确认的 `applyV2/apply` + `record=zgreen_7day_activity` + `fixedZgreenAssetId`，可领取锦鲤泡泡 / 5Kr 等七日奖励。
+
 - **2026-09-21（v2.2.0）**：修**「通知说领完了、App 里碎片/能量还在」**（真事故）——
   ① 批量领取碎片里有个别失败时**真的逐个重试**（旧版只打一句「逐个重试」的日志、实际没重试），
   并把服务端返回的失败原因原样写进日志（旧版把原因丢掉，事故因此查不出来）；

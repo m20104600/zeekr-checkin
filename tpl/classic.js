@@ -408,6 +408,7 @@ var ZEEKR_DEFAULT_CONFIG = {
     var stored = zeekrTokenFromStore(storeRead());
     if (stored) {
       env.ZEEKR_TOKEN = stored;
+      env.ZEEKR_DEVICE_ID = zeekrDeviceIdFromStore(storeRead());
       log("[极氪签到] 🔐 使用持久化存储里的 Token（抓取时间见通知/日志）");
     } else {
       log(

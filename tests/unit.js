@@ -84,7 +84,7 @@ console.log("\n== 1. 纯 JS SHA1 vs Node crypto ==");
   ok("SHA1 随机 300 组一致", rand);
 }
 
-console.log("\n== 2. base64 编码（步数 secret 用 5 层）==");
+console.log("\n== 2. base64 编码（步数 secret 用 6 层）==");
 {
   let allOk = true;
   for (const s of ["10000_salt", "1_salt", "abc", "极氪步数_12345_salt", "x".repeat(100)]) {
@@ -100,10 +100,10 @@ console.log("\n== 2. base64 编码（步数 secret 用 5 层）==");
   let layers = true;
   for (const steps of [1, 999, 8000, 12345, 99999]) {
     let theirs = steps + "_salt";
-    for (let i = 0; i < 5; i++) theirs = Buffer.from(theirs, "utf8").toString("base64");
+    for (let i = 0; i < 6; i++) theirs = Buffer.from(theirs, "utf8").toString("base64");
     if (api.zeekrEncodeStepSecret(steps) !== theirs) layers = false;
   }
-  ok("encodeStepSecret（5 层 base64）与 Node 实现一致", layers);
+  ok("encodeStepSecret（6 层 base64）与 Node 实现一致", layers);
 }
 
 console.log("\n== 3. base64 解码 / JWT 解析 ==");

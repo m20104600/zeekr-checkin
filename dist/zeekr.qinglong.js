@@ -36,7 +36,7 @@ var ZEEKR_DEFAULT_CONFIG = {};
  * 依赖注入：RT = { platform, env, http(), notify(), log(), finish() }
  * ========================================================================== */
 
-var ZEEKR_PORT_VERSION = "2.3.0";
+var ZEEKR_PORT_VERSION = "2.3.1";
 /* 签名密钥由 build.py 从本地 checkin.mjs 抽取后注入（避免密钥出现在源码/终端里被安全屏蔽器打码） */
 var ZEEKR_SECRET = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCz09z6e9WOcNq+nUMX8Vq1Xe2EmJxuR3XbturefioF)E(Fl";
 var ZEEKR_BASE = "https://api-gw-toc.zeekrlife.com";
@@ -518,10 +518,10 @@ function zeekrPost(ctx, path, body) {
   return zeekrRequest(ctx, path, "POST", body);
 }
 
-/** 拼步数上报的 secret："<步数>_salt" 连续 base64 5 次（与 App 抓包一致） */
+/** Encode the step field six times, matching the decoded phone request. */
 function zeekrEncodeStepSecret(stepCounts, layers) {
   var out = stepCounts + "_salt";
-  for (var i = 0; i < (layers || 5); i++) out = zeekrB64Encode(out);
+  for (var i = 0; i < (layers || 6); i++) out = zeekrB64Encode(out);
   return out;
 }
 

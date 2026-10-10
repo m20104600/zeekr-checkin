@@ -36,7 +36,7 @@ var ZEEKR_DEFAULT_CONFIG = {};
  * 依赖注入：RT = { platform, env, http(), notify(), log(), finish() }
  * ========================================================================== */
 
-var ZEEKR_PORT_VERSION = "2.3.1";
+var ZEEKR_PORT_VERSION = "2.3.2";
 /* 签名密钥由 build.py 从本地 checkin.mjs 抽取后注入（避免密钥出现在源码/终端里被安全屏蔽器打码） */
 var ZEEKR_SECRET = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCz09z6e9WOcNq+nUMX8Vq1Xe2EmJxuR3XbturefioF)E(Fl";
 var ZEEKR_BASE = "https://api-gw-toc.zeekrlife.com";
@@ -231,6 +231,20 @@ function zeekrSleep(ms) {
   return new Promise(function (r) {
     setTimeout(r, ms);
   });
+}
+function zeekrResolveStepCounts(value, rng) {
+  var text = String(value == null ? "" : value).trim();
+  var pick = rng || zeekrRand;
+  if (/^(off|0|no|false)$/i.test(text)) return 0;
+  var range = text.match(/^(\d+)\s*-\s*(\d+)$/);
+  if (range) {
+    var min = Number(range[1]), max = Number(range[2]);
+    if (min > 0 && max >= min && max <= 9007199254740991) return pick(min, max);
+  } else if (/^\d+$/.test(text)) {
+    var fixed = Number(text);
+    if (fixed > 0 && fixed <= 9007199254740991) return fixed;
+  }
+  return pick(10000, 20000);
 }
 function zeekrRand(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -1203,8 +1217,8 @@ async function zeekrMain(RT) {
       send();
       return { ok: false, lines: lines };
     }
-    var stepOff = /^(off|0|no|false)$/i.test(cfg.stepsRaw);
-    var steps = stepOff ? 0 : parseInt(cfg.stepsRaw, 10) || zeekrRand(8000, 12000);
+    var steps = zeekrResolveStepCounts(cfg.stepsRaw);
+    var stepOff = steps === 0;
     var pushSteps = async function () {
       await zeekrSleep(zeekrRand(1200, 2200));
       return zeekrSyncWalk(ctx, steps, 20);

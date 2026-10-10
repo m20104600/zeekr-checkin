@@ -38,7 +38,7 @@ ZEEKR_MODE   = all            # all(默认) | sign | claim（补领任务用 cla
 #   兼容写法：不配 ZEEKR_TOKEN 而配 zeekr_val / ZEEKR_VAL
 #   （值是含 authorization 字段的 JSON，与手机端抓出来的格式一致），脚本会自动认。
 ZEEKR_TAG    = 凌晨场          # 只影响通知标题
-ZEEKR_STEPS  = 10000          # 或 off 跳过步数上报
+ZEEKR_STEPS  = 10000-20000    # 范围内随机；固定整数或 off 也支持
 ZEEKR_APPVER = 4.9.33         # 可选，跳过 iTunes 版本查询
 ZEEKR_POLL   = 0              # 1 = 脚本内轮询到领完（任务超时要 ≥ 420 秒）
 ZEEKR_NOTIFY = 1              # 0 关闭通知

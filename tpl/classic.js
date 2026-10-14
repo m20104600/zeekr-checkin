@@ -179,7 +179,14 @@ var ZEEKR_DEFAULT_CONFIG = {
       if (hasHttpClient) {
         var req = { url: o.url, method: o.method, headers: o.headers };
         if (o.body !== null && o.body !== undefined) req.body = o.body;
-        if (o.timeoutMs) req.timeout = Math.max(1, Math.round(o.timeoutMs / 1000));
+        if (o.timeoutMs) {
+          // Loon 的 $httpClient.timeout 单位是毫秒（默认 5000）。
+          // Surge / Stash 沿用秒。传成 20 时 Loon 会在 20 毫秒就报 Request timeout。
+          req.timeout =
+            platform === "Loon"
+              ? Math.max(1, Math.round(o.timeoutMs))
+              : Math.max(1, Math.round(o.timeoutMs / 1000));
+        }
         var fn =
           String(o.method || "GET").toUpperCase() === "GET"
             ? $httpClient.get

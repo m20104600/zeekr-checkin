@@ -29,8 +29,17 @@ EP = r"zeekrlife-app-user/v\d/user/info/query"
 # ── 各客户端要用的正则（都只写一层反斜杠）──
 RE_QX = r"^https:\/\/api-gw-toc\.zeekrlife\.com\/" + EP + r"$"
 RE_QX_BROAD = r"^https:\/\/api-gw-toc\.zeekrlife\.com\/"
-RE_LOON = r"/^https:\/\/api-gw-toc\.zeekrlife\.com\/" + EP + r"/"
-RE_LOON_BROAD = r"/^https:\/\/api-gw-toc\.zeekrlife\.com\//"
+# Loon 新语法是 /pattern/flags。路径里的 / 必须写成 \/，否则会提前结束正则。
+# 旧版 http-request 默认忽略大小写；新语法要自己加 i。
+_LOON_HOST = r"^https://api-gw-toc\.zeekrlife\.com/"
+
+
+def _loon_re(body):
+    return "/" + body.replace("/", r"\/") + "/i"
+
+
+RE_LOON = _loon_re(_LOON_HOST + EP + "$")
+RE_LOON_BROAD = _loon_re(_LOON_HOST)
 RE_STASH = r"^https://api-gw-toc\.zeekrlife\.com/" + EP
 RE_STASH_BROAD = r"^https://api-gw-toc\.zeekrlife\.com/"
 RE_STASH_NARROW_FULL = RE_STASH + r"$"
@@ -106,13 +115,13 @@ TAG = input,"凌晨场",tag=场次标签,desc=只用于通知标题
 [Script]
 # ① 自动抓 Token（打开极氪 App 时触发，抓到就存进 Loon；通知里会带完整 Token）
 #    默认匹配整个 api-gw-toc 域名，最稳；只想匹配「用户信息」接口就把下面那行换成窄版
-http-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
+request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
 # 窄版（开销更小；新版 App 不一定发这个请求）：
-# http-request if ${{url}} ~= {RE_LOON} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
+# request if ${{url}} ~= {RE_LOON} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
 # 若请求阶段不触发，用「响应阶段」兜底（参考脚本 wf021325/qx 用的就是响应阶段；整域名）
-# http-response if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token(响应阶段兜底)", timeout=20
+# response if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token(响应阶段兜底)", timeout=20
 # 调试：临时把抓取那行换成这行（每条命中的请求都会弹通知，证明规则生效了）
-# http-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js", "CAPDEBUG=1") with tag="极氪抓Token(调试)", timeout=20
+# request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js", "CAPDEBUG=1") with tag="极氪抓Token(调试)", timeout=20
 
 # ② 三场定时（快跑，单次约 10~25 秒）+ 每场 10 分钟后的「只领取」补领
 cron "1 0 * * *" then script("{REPO}/zeekr.js", {{${{TOKEN}}, ${{TAG}}}}) with tag="极氪签到·凌晨场", timeout=60
@@ -140,7 +149,7 @@ hostname = api-gw-toc.zeekrlife.com
 loon_snippet = HEADER.format(client="Loon 配置片段（想合并进自己的 .conf 时用；手机上装插件请用 loon.plugin）") + f"""
 [Script]
 # 自动抓 Token（默认整域名；调试时加 "CAPDEBUG=1" 参数会为每条命中请求弹通知）
-http-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
+request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
 # 三场 + 补领（argument 直接写字面串）
 cron "1 0 * * *" then script("{REPO}/zeekr.js", "{K}={PH}&TAG=凌晨场") with tag="极氪签到·凌晨场", timeout=60
 cron "10 0 * * *" then script("{REPO}/zeekr.js", "MODE=claim&TAG=凌晨场·补领") with tag="极氪签到·凌晨补领", timeout=60

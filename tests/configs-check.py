@@ -71,10 +71,38 @@ for line in read("qx.conf").split("\n"):
     if s and not s.startswith("#") and "script-request-header" in s and "url" in s:
         regexes.setdefault("qx.conf", []).append(s.split(" ")[0])
 
-# Loon： ~= /正则/ then
+def loon_regexes(text):
+    """抽出 ~= /pattern/flags 里的 pattern 与 flags。pattern 中的 \\/ 不算结束符。"""
+    found = []
+    for m in re.finditer(r"~= /", text):
+        i = m.end()
+        buf = []
+        while i < len(text):
+            ch = text[i]
+            if ch == "\\" and i + 1 < len(text):
+                buf.append(ch)
+                buf.append(text[i + 1])
+                i += 2
+                continue
+            if ch == "/":
+                break
+            buf.append(ch)
+            i += 1
+        else:
+            continue
+        i += 1
+        flags = []
+        while i < len(text) and text[i].isalpha():
+            flags.append(text[i])
+            i += 1
+        found.append(("".join(buf), "".join(flags)))
+    return found
+
+
+# Loon： ~= /正则/flags then
 for fn in ("loon.plugin", "loon-snippet.conf"):
-    for m in re.finditer(r"~= (/.+/) then", read(fn)):
-        regexes.setdefault(fn, []).append(m.group(1)[1:-1])
+    for pat, flags in loon_regexes(read(fn)):
+        regexes.setdefault(fn, []).append((pat, flags))
 
 # Stash / Egern： match: '正则'
 for fn in ("stash.yaml", "egern.yaml"):
@@ -83,17 +111,29 @@ for fn in ("stash.yaml", "egern.yaml"):
 
 for fn, pats in regexes.items():
     check(f"{fn} 里有抓取正则", bool(pats))
-    check(f"{fn} 正则没有 ^^ / $$ 这种重复锚点", not any(p.startswith("^^") or p.endswith("$$") for p in pats),
-          [p[:40] for p in pats if p.startswith("^^") or p.endswith("$$")])
+    def _pat(p):
+        return p[0] if isinstance(p, tuple) else p
+
+    def _flags(p):
+        if not isinstance(p, tuple):
+            return 0
+        fl = 0
+        if "i" in p[1]:
+            fl |= re.I
+        return fl
+
+    check(f"{fn} 正则没有 ^^ / $$ 这种重复锚点", not any(_pat(p).startswith("^^") or _pat(p).endswith("$$") for p in pats),
+          [_pat(p)[:40] for p in pats if _pat(p).startswith("^^") or _pat(p).endswith("$$")])
     for p in pats:
+        src = _pat(p)
         try:
-            rx = re.compile(p)
+            rx = re.compile(src, _flags(p))
         except re.error as e:
-            check(f"{fn} 正则可编译: {p[:46]}", False, str(e))
+            check(f"{fn} 正则可编译: {src[:46]}", False, str(e))
             continue
-        is_broad = "app-user" not in p
+        is_broad = "app-user" not in src
         u = TARGET_ROOT if is_broad else TARGET_URL
-        check(f"{fn} 正则可编译且能匹配目标 URL", bool(rx.search(u)), p[:70])
+        check(f"{fn} 正则可编译且能匹配目标 URL", bool(rx.search(u)), src[:70])
 
 print("\n== 2b. 结构校验（Loon 插件行 / Egern 模块条目）==")
 loon_txt = read("loon.plugin")
@@ -102,8 +142,12 @@ check("loon.plugin 6 条 cron 都是新语法 then script(...)",
       len(cron_lines) == 6 and all('then script("' in c for c in cron_lines), len(cron_lines))
 check("loon.plugin 的 cron 都带 timeout",
       all("timeout=" in c for c in cron_lines))
-check("loon.plugin 的抓取行用 http-request if ... then script(...)",
-      re.search(r'^http-request if \$\{url\} ~= /.+/ then script\("', loon_txt, re.M) is not None)
+check("loon.plugin 的抓取行用 request if ... then script(...)",
+      re.search(r'^request if \$\{url\} ~= /.+/i then script\("', loon_txt, re.M) is not None)
+check("loon.plugin 没有旧触发词 http-request / http-response",
+      re.search(r"^http-(request|response) ", loon_txt, re.M) is None)
+check("loon-snippet.conf 的抓取行用 request if",
+      re.search(r'^request if \$\{url\} ~= /.+/i then script\("', read("loon-snippet.conf"), re.M) is not None)
 check("loon.plugin 的 argument 用了插件参数 ${TOKEN}",
       "${TOKEN}" in loon_txt)
 

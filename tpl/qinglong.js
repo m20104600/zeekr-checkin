@@ -5,21 +5,24 @@
  * ── 部署 ──────────────────────────────────────────────────────────────
  * 1) 把本文件上传到青龙：脚本管理 → 新建脚本 / 或者放进 /ql/scripts/
  *    （也可以在「订阅管理」里订阅存放本文件的仓库，脚本名填 zeekr.qinglong.js）
- * 2) 「定时任务」新建任务：
- *      任务名称: 极氪签到·凌晨场
- *      命令:     task zeekr.qinglong.js
- *      定时规则: 1 0 * * *
- *    再建两条只领取的补领任务（延迟入账的碎片/能量球）：
- *      命令:     task zeekr.qinglong.js
- *      定时规则: 10 0 * * * / 20 8 * * * / 40 21 * * *  (见 README)
+ * 2) 「定时任务」新建两条（推荐，一天跑两次比三场更像真人）：
+ *      极氪签到·全流程   task zeekr.qinglong.js   47 20 * * *   任务变量 ZEEKR_DELAY=1800
+ *      极氪签到·补领     task zeekr.qinglong.js   13 22 * * *   任务变量 ZEEKR_MODE=claim ZEEKR_DELAY=600
+ *    放晚上跑：要上报 1~2 万步，早上 8 点就走了一两万步不合常理。
+ *    分钟别选 0 / 30（青龙在这两个分钟会忽略 RandomDelay），脚本自带的 ZEEKR_DELAY 不受影响。
  * 3) 「环境变量」添加：
  *      ZEEKR_TOKEN = Bearer eyJ...      ← 必填，多账号用换行 / & 分隔，
  *                                          或 ZEEKR_TOKEN_1、ZEEKR_TOKEN_2 ...
  *      ZEEKR_MODE  = all                ← all | sign | claim（补领任务用 claim）
  *      ZEEKR_TAG   = 凌晨场              ← 只影响通知标题
  *      ZEEKR_POLL  = 0                  ← 1 = 脚本内轮询领光（需放宽任务超时）
- *      ZEEKR_STEPS = 10000              ← 或 off 跳过步数上报
- *      ZEEKR_APPVER= 4.9.33             ← 可选，跳过 iTunes 版本查询
+ *      ZEEKR_STEPS = 10000-20000        ← 范围随机（默认），或 off 跳过步数上报
+ *      ZEEKR_APPVER= 5.0.7              ← 手机开了 App 自动更新就留空（查 App Store 最新版，跟手机一致）
+ *      ZEEKR_DELAY = 1800               ← 随机延迟启动的上限秒数（或 300-1800）
+ *      ZEEKR_READWAIT = 8-20            ← 读文章后停留秒数（青龙默认 8-20，off 关闭）
+ *      ZEEKR_DEVICE_ID                  ← 签到页请求里的 20 位数字 device_id（不填按账号派生）
+ *      ZEEKR_APP_SECRET                 ← 原生请求头 x_ca_secret；配了读文章/点赞才走原生身份
+ *      ZEEKR_PHONE_MODEL / ZEEKR_IOS_VERSION ← 原生请求头机型/系统版本，如 iPhone17,1 / 26.0
  *      ZEEKR_NOTIFY= 0                  ← 可选，关闭通知
  *    通知默认走青龙自带 sendNotify.js（在 环境变量/通知设置 里配好推送渠道）；
  *    找不到 sendNotify 时可用 ZEEKR_TG_BOT_TOKEN + ZEEKR_TG_CHAT_ID 走 Telegram。
@@ -210,10 +213,14 @@ function zeekrQLVals() {
 /** 复制全局 ZEEKR_* 环境变量（每个账号一份，互不干扰） */
 function zeekrQLBaseEnv() {
   var env = {};
+  var hasReadWait = false;
   for (var k in process.env) {
     if (!Object.prototype.hasOwnProperty.call(process.env, k)) continue;
     if (/^ZEEKR/i.test(k)) env[k] = process.env[k];
+    if (/^(ZEEKR_)?READWAIT$/i.test(k)) hasReadWait = true;
   }
+  /* 青龙没有超时压力：默认读文章后停 8~20 秒（其它客户端默认不停留） */
+  if (!hasReadWait) env.ZEEKR_READWAIT = "8-20";
   return env;
 }
 
@@ -233,9 +240,24 @@ function zeekrQLBaseEnv() {
     process.exit(1);
   }
 
+  /* 随机启动：ZEEKR_DELAY=1800 表示 0~1800 秒，也可写 300-1800；不受青龙整点/半点不延迟的限制 */
+  var delayRaw = String(process.env.ZEEKR_DELAY || "").trim();
+  var delay = /^\d+$/.test(delayRaw)
+    ? zeekrRand(0, Math.min(Number(delayRaw), 7200))
+    : zeekrResolveSeconds(delayRaw, 7200);
+  if (delay > 0) {
+    console.log("[极氪签到] 🎲 随机延迟 " + delay + " 秒后开始");
+    await zeekrSleep(delay * 1000);
+  }
+
   var blocks = [];
   var fails = 0;
   for (var i = 0; i < count; i++) {
+    if (i > 0) {
+      var gap = zeekrRand(30, 120);
+      console.log("[极氪签到] ⏳ 账号间隔 " + gap + " 秒");
+      await zeekrSleep(gap * 1000);
+    }
     var env = zeekrQLBaseEnv();
     if (tokens.length) env.ZEEKR_TOKEN = tokens[i];
     else env.ZEEKR_VAL = vals[i];
@@ -255,7 +277,7 @@ function zeekrQLBaseEnv() {
     try {
       r = await zeekrMain(RT);
     } catch (e) {
-      fails++;
+      /* 失败计数在下面统一做（r.ok === false），这里不再 +1，否则一次异常记成两次 */
       r = {
         ok: false,
         lines: ["[极氪签到] ❌ 执行异常: " + ((e && e.message) || String(e))],

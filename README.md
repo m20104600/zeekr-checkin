@@ -124,8 +124,15 @@ https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/configs/egern.yam
 | `WAITS` | `45,60,75` | `POLL=1` 时的复查间隔（秒） |
 | `SETTLE` | `180` | 距最后一次成功领取至少观察多少秒（`POLL=1`） |
 | `MAX` | `600` | 领取阶段总上限（秒，`POLL=1`） |
-| `APPVER` | 查 iTunes | 指定 App 版本号，跳过 iTunes 查询 |
+| `APPVER` | 查 iTunes | 指定 App 版本号，跳过 iTunes 查询（手机开了 App 自动更新就留空，跟手机一致） |
 | `LIKE` | `0` | `1` = 强制点一次赞（排查用） |
+| `UA` | 内置 H5 UA | 签到页完整 User-Agent（真机抓包确认与内置一致，一般不用填） |
+| `DEVICE_ID` | 按账号派生 | 签到页请求头 `device_id`：真机签到页请求里那个 **20 位数字**；不填按账号派生固定值 |
+| `APP_SECRET` | — | 原生请求头 `x_ca_secret` 的值。配了才用 App 原生身份读文章/点赞（与真机一致），不配退回 H5 身份 |
+| `PHONE_MODEL` | `iPhone17,1` | 原生请求头机型，如 `iPhone17,1`（配了 `APP_SECRET` 才用） |
+| `IOS_VERSION` | `26.0` | 原生请求头系统版本，如 `26.0`（手机升级系统后记得改） |
+| `READWAIT` | `off`（青龙版 `8-20`） | 读文章后停留秒数：范围 / 整数 / `off`，上限 120 |
+| `DELAY` | — | **仅青龙版**：随机延迟启动上限秒数（`1800` = 0~1800 秒，或 `300-1800`），上限 7200 |
 | `NOTIFY` | `1` | `0` = 不发通知 |
 | `CAPSHOW` | `1` | 抓到 Token 时通知里显示完整 Token（复制到青龙用）；`0` 只显示账号/有效期 |
 | `VERBOSE` | `0` | `1` = 输出逐轮明细 |
@@ -224,6 +231,21 @@ python3 tests/e2e-qinglong.py # 22 项：真跑青龙脚本（多账号、zeekr_
 
 ## 更新记录
 
+- **2026-10-23（v2.5.0）**：按真机 HAR（iOS 26 / App 5.0.7）对齐请求 ——
+  ① 签到页 `device_id` 改回 H5 自己生成的 20 位数字（v2.4.0 误用了原生 64 位 ID）；
+  ② 读文章、点赞改用 App 原生身份（`APP-SIGN-SECRET-KEY`，签名 = sha1(排序拼接 [x_ca_secret, nonce, ts])，已用真机请求复算验证），
+  并照真机链路调 behaviorTrack → 详情 → 评论 → 相关推荐，每周点赞点刚读的那篇；需配置 `APP_SECRET`，不配退回旧行为；
+  ③ 签到前查节日签到、每次刷新任务前调 taskGet（与真机页面一致）；
+  ④ `x_gray_code` / `riskVersion` / `Content-Type` 按接口携带，补 `Sec-Fetch-*`、`Priority`；步数请求体字段顺序对齐；
+  ⑤ 「阅读文章」当日已完成就不再重复读；
+  ⑥ 步数按「北京日期 + 账号」取当天固定值（仍在 `STEPS` 范围内），同一天多次运行上报同一个数，不会出现步数变少。
+- **2026-10-23（v2.4.0）**：降低风控 ——
+  ① 修 `DEVICE_ID` 参数从未生效（键名归一化后是 `DEVICEID`），之前所有客户端请求头 `device_id` 都是空的；
+  现在不配置时默认取 Token 里的 `lastLoginDeviceId`（真机抓包确认与请求头一致）；
+  ② Token 失效（HTTP 401 / 登录失效）立即熔断，本次不再发任何请求，通知标题写「Token 失效」；
+  ③ 新增 `UA`（完整 UA 覆盖）、`READWAIT`（读文章停留）、青龙版 `DELAY`（随机延迟启动）与多账号间隔 30~120 秒；
+  ④ 读文章与点赞之间加随机间隔；青龙推荐改为一天两条任务、放晚上跑（步数 1~2 万在晚上才合理）。
+  离线回归见 `tests/hardening.js`。
 - **2026-10-10（v2.3.2）**：默认随机上报 10000–20000 步，支持范围字符串、固定整数、关闭；同次运行补报沿用一个抽样，保留六层编码。旧配置若固定为 10000，需自行改成 `10000-20000` 或留空。
 - **2026-10-10（v2.3.1）**：步数 `stepCountsSecret` 从五层修正为六层 Base64，加入解码后手机字段的逐字节回归。不领取探针已验证上报被接受；当日任务此前已由手机完成，尚不能证明奖励由此次脚本上报生成。
 - **2026-09-25（v2.3.0）**：修七日连签抽奖球领取 —— `SIGN_CONTINUOUS_7_LOTTERY` 不再按普通碎片走 `batchApply`，改用 App 抓包确认的 `applyV2/apply` + `record=zgreen_7day_activity` + `fixedZgreenAssetId`，可领取锦鲤泡泡 / 5Kr 等七日奖励。

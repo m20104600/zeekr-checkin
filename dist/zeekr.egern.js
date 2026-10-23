@@ -37,7 +37,7 @@
  * 依赖注入：RT = { platform, env, http(), notify(), log(), finish() }
  * ========================================================================== */
 
-var ZEEKR_PORT_VERSION = "2.3.2";
+var ZEEKR_PORT_VERSION = "2.5.0";
 /* 签名密钥由 build.py 从本地 checkin.mjs 抽取后注入（避免密钥出现在源码/终端里被安全屏蔽器打码） */
 var ZEEKR_SECRET = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCz09z6e9WOcNq+nUMX8Vq1Xe2EmJxuR3XbturefioF)E(Fl";
 var ZEEKR_BASE = "https://api-gw-toc.zeekrlife.com";
@@ -53,6 +53,12 @@ var ZEEKR_API = {
   claimSevenDayLottery: "/zeekrlife-mp-mkt/toc/v1/applyV2/apply",
   claimWalk: "/zeekrlife-mp-val/v1/carEnergy/collectedAllEnergy",
   claimIntegral: "/zeekrlife-mp-val/v1/carEnergy/collectIntegralZeekrBalls",
+  /* 以下是真机打开页面时会顺带调的只读接口（2026-10-23 HAR） */
+  festival: "/zeekrlife-mp-sic/v1/feign/signincalendar/festival",
+  taskGet: "/zeekrlife-mp-sic/v1/signinzgreen/toc/taskGet",
+  behaviorTrack: "/zeekrlife-search-api/search/open/api/new/behaviorTrack",
+  commentList: "/zeekrlife-bbs-theme/v1/comment/pub/list",
+  recommend: "/zeekrlife-bbs-theme/v1/invitation/pub/recommend",
 };
 var ZEEKR_VAL_DEBRIS = "DEBRIS";
 var ZEEKR_VAL_WALK = "CARBON_VALUE";
@@ -247,6 +253,27 @@ function zeekrResolveStepCounts(value, rng) {
   }
   return pick(10000, 20000);
 }
+/** 秒数参数：a-b 范围随机 / 整数 / 空或 off = 0；超过 cap 按 cap 算 */
+function zeekrResolveSeconds(value, cap) {
+  var text = String(value == null ? "" : value).trim();
+  var n = 0;
+  var range = text.match(/^(\d+)\s*-\s*(\d+)$/);
+  if (range) {
+    var min = Number(range[1]), max = Number(range[2]);
+    if (max >= min) n = zeekrRand(min, max);
+  } else if (/^\d+$/.test(text)) {
+    n = Number(text);
+  }
+  return Math.min(n, cap);
+}
+/* 当天固定的「随机」：按 北京日期 + 账号 取值，同一天跑几次都一样（步数一天里不会变少），换一天才变 */
+function zeekrDailyRng(accountId) {
+  var day = zeekrCSTDate(Date.now());
+  return function (min, max) {
+    var h = parseInt(zeekrSha1Hex("zeekr-steps:" + day + ":" + (accountId || "")).slice(0, 12), 16);
+    return min + (h % (max - min + 1));
+  };
+}
 function zeekrRand(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -356,6 +383,11 @@ function zeekrTokenFromStore(raw) {
  *   MAX        领取阶段上限（秒，默认 600）
  *   APPVER     App 版本号，跳过 iTunes 查询，例如 4.9.33
  *   LIKE       1 = 不管本周是否已完成都点一次赞（排查用）
+ *   UA         签到页（H5）完整 User-Agent，不填用内置 H5 UA（真机 HAR 确认一致，一般不用填）
+ *   DEVICE_ID  签到页请求头 device_id（20 位数字，取自真机签到页请求）；不填按账号派生固定值
+ *   APP_SECRET 原生请求头 x_ca_secret 的值；配了才用原生身份读文章/点赞（与真机一致）
+ *   PHONE_MODEL / IOS_VERSION  原生请求头的机型（如 iPhone17,1）与系统版本（如 26.0）
+ *   READWAIT   读文章后停留秒数：8-20 范围随机 / 整数 / off(默认，不停留)，上限 120
  *   NOTIFY     0 = 不发通知
  *   CAPSHOW    1(默认) = 抓到 Token 时在通知里显示完整 Token（方便复制到青龙）；
  *              0 = 只显示账号/有效期（Token 仍会存进客户端持久化存储）
@@ -395,7 +427,10 @@ function zeekrLoadConfig(RT) {
   };
   var cfg = {
     token: str("TOKEN", ""),
-    deviceId: str("DEVICE_ID", ""),
+    deviceId: str("DEVICEID", ""), /* zeekrNormKey 会去掉下划线：DEVICE_ID → DEVICEID */
+    appSecret: str("APPSECRET", ""),
+    phoneModel: str("PHONEMODEL", "iPhone17,1"),
+    iosVersion: str("IOSVERSION", "26.0"),
     mode: str("MODE", "all").toLowerCase(),
     tag: str("TAG", ""),
     stepsRaw: str("STEPS", ""),
@@ -404,6 +439,8 @@ function zeekrLoadConfig(RT) {
     settle: parseInt(str("SETTLE", "180"), 10) || 180,
     max: parseInt(str("MAX", "600"), 10) || 600,
     appver: str("APPVER", ""),
+    ua: str("UA", ""),
+    readWait: str("READWAIT", ""),
     forceLike: str("LIKE", "0") === "1",
     notify: str("NOTIFY", "1") !== "0",
     verbose: str("VERBOSE", "0") === "1",
@@ -466,48 +503,137 @@ function zeekrParseToken(token) {
 
 /* ---------------- 请求层 ---------------- */
 
-function zeekrHeaders(token, appVersion, deviceId) {
+/* 2026-10-23 真机 HAR 对齐：
+   - 签到页（H5）只调签到/步数/任务/领取；读文章、点赞是 App 原生页面发的（原生身份）
+   - x_gray_code 只出现在步数/能量类接口，riskVersion 只出现在 batchApply，GET 不带 Content-Type
+   - Accept-Encoding 交给运行时（声明 br 的话，部分客户端/https 兜底分支解不了压缩） */
+var ZEEKR_NATIVE_PATHS = [
+  ZEEKR_API.articleDetail,
+  ZEEKR_API.fabulous,
+  ZEEKR_API.behaviorTrack,
+  ZEEKR_API.commentList,
+  ZEEKR_API.recommend,
+  ZEEKR_API.squareList,
+];
+var ZEEKR_GRAY_PATHS = [ZEEKR_API.walkData, ZEEKR_API.uncollected];
+var ZEEKR_RISKVER_PATHS = [ZEEKR_API.claimDebris];
+
+function zeekrPathIn(list, path) {
+  var p = String(path).split("?")[0];
+  for (var i = 0; i < list.length; i++) if (list[i] === p) return true;
+  return false;
+}
+
+function zeekrDigits(len) {
+  var s = "";
+  for (var i = 0; i < len; i++) s += String(Math.floor(Math.random() * 10));
+  return s;
+}
+
+/* H5 的 device_id：页面首次打开时随机生成 20 位数字、存 localStorage、之后不变。
+   没配置真机那个值时，按账号派生一个固定的 20 位数字（同账号每次一致）。 */
+function zeekrH5DeviceId(configured, accountId) {
+  if (/^\d{20}$/.test(configured || "")) return configured;
+  var hex = zeekrSha1Hex("zeekr-h5-device:" + (accountId || ""));
+  var s = "";
+  for (var i = 0; i < 20; i++) s += String(parseInt(hex.charAt(i), 16) % 10);
+  return s;
+}
+
+/* 签到页（App 内嵌 H5）发出的请求头，字段顺序照抄真机 */
+function zeekrH5Headers(ctx, path, method) {
   var timestamp = Date.now();
   var nonce = zeekrRandomString(15);
-  return {
-    "Content-Type": "application/json",
-    Accept: "application/json, text/plain, */*",
-    "Accept-Language": "zh-CN,zh-Hans;q=0.9",
-    Authorization: token,
-    x_ca_key: "H5-SIGN-SECRET-KEY",
-    x_ca_nonce: nonce,
-    x_ca_timestamp: String(timestamp),
-    x_ca_sign: zeekrSha1Hex(
-      [ZEEKR_SECRET, nonce, String(timestamp)].sort().join("")
-    ),
-    WorkspaceId: "prod",
-    Version: "2",
-    app_type: "h5",
+  var h = {
     app_code: "toc_h5_green_zeekrapp",
-    platform: "",
-    platform_h5: "IOS",
-    risk_platform: "h5",
-    riskTimeStamp: String(timestamp),
-    riskVersion: "1",
-    "device_id": deviceId || "",
-    x_gray_code: "gray45",
     AppId: "ONEX97FB91F061405",
-    "X-CORS-ONEX97FB91F061405-prod": "1",
-    "Eagleeye-Sessionid": "",
-    "Eagleeye-Traceid": "",
-    Origin: "https://activity-h5.zeekrlife.com",
     Referer: "https://activity-h5.zeekrlife.com/",
+    /* iOS 26 起 WebKit 把 UA 里的系统版本冻结在 18_x；真机 HAR 确认与此一字不差 */
     "User-Agent":
+      ctx.ua ||
       "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) zeekr_iOS_v" +
-      appVersion,
+        ctx.appVersion,
+    x_ca_sign: zeekrSha1Hex([ZEEKR_SECRET, nonce, String(timestamp)].sort().join("")),
+    "Eagleeye-Sessionid": "",
+    "X-CORS-ONEX97FB91F061405-prod": "1",
+    "Eagleeye-Traceid": "",
+    device_id: ctx.h5DeviceId || "",
+    risk_platform: "h5",
+    Origin: "https://activity-h5.zeekrlife.com",
+    x_ca_nonce: nonce,
+    "Sec-Fetch-Dest": "empty",
+    x_ca_timestamp: String(timestamp),
+    x_ca_key: "H5-SIGN-SECRET-KEY",
+    "Sec-Fetch-Site": "same-site",
+    Version: "2",
+    WorkspaceId: "prod",
+    platform: "",
+    Authorization: ctx.token,
+    app_type: "h5",
   };
+  if (zeekrPathIn(ZEEKR_GRAY_PATHS, path)) h.x_gray_code = "gray45";
+  h.riskTimeStamp = String(timestamp);
+  if (zeekrPathIn(ZEEKR_RISKVER_PATHS, path)) h.riskVersion = "1";
+  h.Accept = "application/json, text/plain, */*";
+  if (method !== "GET") h["Content-Type"] = "application/json";
+  h.platform_h5 = "IOS";
+  h["Sec-Fetch-Mode"] = "cors";
+  h["Accept-Language"] = "zh-CN,zh-Hans;q=0.9";
+  h.Priority = "u=3, i";
+  return h;
+}
+
+/* App 原生页面发出的请求头（读文章、点赞）。签名 = sha1(排序后拼接 [x_ca_secret, nonce, timestamp])，
+   x_ca_secret 本身就明文放在请求头里（取自真机抓包，配置项 APP_SECRET） */
+function zeekrNativeHeaders(ctx, method) {
+  var timestamp = Date.now();
+  var nonce = zeekrDigits(8);
+  var h = {
+    "User-Agent":
+      "ZeekrLife/" + ctx.appVersion + " (iPhone; iOS " + ctx.iosVersion + "; Scale/3.00)" + ctx.nativeDeviceId,
+    x_ca_sign: zeekrSha1Hex([ctx.appSecret, nonce, String(timestamp)].sort().join("")),
+    app_code: "toc_ios_zeekrapp",
+    app_version: ctx.appVersion,
+    device_id: ctx.nativeDeviceId,
+    phone_version: ctx.iosVersion,
+    x_ca_nonce: nonce,
+    x_ca_key: "APP-SIGN-SECRET-KEY",
+    Version: "2",
+    x_ca_timestamp: String(timestamp),
+    "request-original": "zeekr-app",
+    WorkspaceId: "prod",
+    riskVersion: "1",
+    Authorization: ctx.token,
+    "Accept-Language": "zh-Hans-CN;q=1",
+    app_type: "IOS",
+    phone_model: ctx.phoneModel,
+    x_ca_secret: ctx.appSecret,
+    Accept: "*/*",
+  };
+  if (method !== "GET") h["Content-Type"] = "application/json";
+  return h;
+}
+
+/* 没配 APP_SECRET 时，原生接口退回用 H5 身份（v2.4.0 及以前的行为） */
+function zeekrBuildHeaders(ctx, path, method) {
+  if (ctx.appSecret && zeekrPathIn(ZEEKR_NATIVE_PATHS, path)) return zeekrNativeHeaders(ctx, method);
+  return zeekrH5Headers(ctx, path, method);
+}
+
+/* 登录失效的判定：HTTP 401，或业务报错的 msg 里带登录/授权字样 */
+function zeekrIsAuthDead(status, data) {
+  if (status === 401) return true;
+  if (!data || data.code === "000000") return false;
+  return /登录|未授权|token\s*(失效|过期|无效)/i.test(String(data.msg || ""));
 }
 
 async function zeekrRequest(ctx, path, method, body) {
+  /* Token 已失效：本次运行不再发任何请求（失效后还连着打一串接口，最像机器） */
+  if (ctx.authDead) return { code: "AUTH_DEAD", msg: "登录已失效，已停止后续请求" };
   var res = await ctx.RT.http({
     method: method,
     url: ZEEKR_BASE + path,
-    headers: zeekrHeaders(ctx.token, ctx.appVersion, ctx.deviceId),
+    headers: zeekrBuildHeaders(ctx, path, method),
     body: method === "GET" ? null : JSON.stringify(body === undefined ? {} : body),
     timeoutMs: 20000,
   });
@@ -519,11 +645,17 @@ async function zeekrRequest(ctx, path, method, body) {
       text = String(text);
     }
   }
+  var data;
   try {
-    return JSON.parse(text);
+    data = JSON.parse(text);
   } catch (e2) {
-    return { code: "PARSE_ERROR", msg: String(text).slice(0, 200) };
+    data = { code: "PARSE_ERROR", msg: String(text).slice(0, 200) };
   }
+  if (zeekrIsAuthDead(res && res.status, data)) {
+    ctx.authDead = true;
+    ctx.out("⛔ 检测到登录失效（" + (data.msg || "HTTP 401") + "），停止本次后续请求");
+  }
+  return data;
 }
 
 function zeekrGet(ctx, path) {
@@ -543,6 +675,9 @@ function zeekrEncodeStepSecret(stepCounts, layers) {
 /* ---------------- 各业务动作 ---------------- */
 
 async function zeekrSignIn(ctx) {
+  /* 真机签到页加载时先查节日签到配置，约 1 秒后才调签到 */
+  await zeekrPost(ctx, ZEEKR_API.festival, {});
+  await zeekrSleep(zeekrRand(600, 1500));
   var data = await zeekrPost(ctx, ZEEKR_API.signIn, {});
   if (data.code === "000000") {
     var info = (data.data && data.data.signInZgreenInfo) || [];
@@ -563,13 +698,14 @@ async function zeekrSignIn(ctx) {
 
 async function zeekrSyncWalk(ctx, steps, sourceType) {
   var base = {
-    stepCounts: steps,
     stepCountsSecret: zeekrEncodeStepSecret(steps),
+    stepCounts: steps,
     sourceType: sourceType || 20,
   };
+  /* 字段顺序与真机一致：accountId, stepCountsSecret, stepCounts, sourceType */
   var body = {};
-  for (var k in base) body[k] = base[k];
   if (ctx.accountId) body.accountId = ctx.accountId;
+  for (var k in base) body[k] = base[k];
   var data = await zeekrPost(ctx, ZEEKR_API.walkData, body);
   if (data.code !== "000000" && ctx.accountId) {
     ctx.out(
@@ -590,6 +726,9 @@ async function zeekrSyncWalk(ctx, steps, sourceType) {
 }
 
 async function zeekrGetTasks(ctx) {
+  /* 真机签到页每次刷新任务都是 taskGet + taskMsg 成对出现 */
+  await zeekrGet(ctx, ZEEKR_API.taskGet);
+  await zeekrSleep(zeekrRand(200, 600));
   var data = await zeekrPost(ctx, ZEEKR_API.taskMsg, {
     activityRecord: "medal_compose_task_manage",
     optional: { fetchTaskTakeAndReachTimesInfo: true },
@@ -601,28 +740,79 @@ async function zeekrGetTasks(ctx) {
   return (data.data && data.data.taskReachMsgList) || [];
 }
 
+/**
+ * 读任务里的文章。返回文章详情（给每周点赞用），失败或跳过返回 null。
+ * 配了 APP_SECRET 时照真机原生文章页的调用链：behaviorTrack → detail → 评论 → 相关推荐。
+ */
 async function zeekrReadArticle(ctx, tasks) {
   var task = null;
   for (var i = 0; i < tasks.length; i++)
     if (tasks[i].name === ZEEKR_TASK_ARTICLE) task = tasks[i];
   if (!task) return null;
+  if (zeekrTaskDone(task)) {
+    ctx.out("📖 阅读文章: 今日已完成，跳过");
+    return null;
+  }
   var url = (task.doc && task.doc.path) || "";
   var m = url.match(/acticleId=([^&]+)/);
   if (!m) {
     ctx.out("❌ 阅读文章: 任务里没拿到文章 ID");
     return null;
   }
+  var id = m[1];
+  if (ctx.appSecret) {
+    await zeekrPost(ctx, ZEEKR_API.behaviorTrack, {
+      mobileType: "iOS",
+      deviceId: ctx.nativeDeviceId,
+      accountId: ctx.accountId,
+      appVersion: ctx.appVersion,
+      type: 1,
+      businessId: id,
+    });
+    await zeekrSleep(zeekrRand(300, 900));
+  }
   var data = await zeekrGet(
     ctx,
-    ZEEKR_API.articleDetail + "?id=" + m[1]
+    ZEEKR_API.articleDetail + "?id=" + id
   );
   if (data.code === "000000") {
     ctx.out(
-      "📖 阅读文章成功: " + ((data.data && data.data.title) || m[1])
+      "📖 阅读文章成功: " + ((data.data && data.data.title) || id)
     );
-    return true;
+    if (ctx.appSecret) {
+      await zeekrGet(ctx, ZEEKR_API.commentList + "?moduleId=" + id + "&moduleType=1&pageNo=1&pageSize=15");
+      await zeekrPost(ctx, ZEEKR_API.recommend, { id: id });
+    }
+    /* 像真人一样在文章页停一会儿再走（READWAIT，默认不停留） */
+    var stay = zeekrResolveSeconds(ctx.readWait, 120);
+    if (stay) {
+      ctx.vlog("阅读停留 " + stay + "s");
+      await zeekrSleep(stay * 1000);
+    }
+    return data.data || { id: id };
   }
   ctx.out("❌ 阅读文章失败: " + (data.msg || JSON.stringify(data)));
+  return null;
+}
+
+/* 给一篇帖子/文章点赞（target 需要 id、accountId；invitationType 缺省 2） */
+async function zeekrLikePost(ctx, target) {
+  var data = await zeekrPost(ctx, ZEEKR_API.fabulous, {
+    moduleId: String(target.id),
+    accountId: ctx.accountId,
+    fabulousState: 1,
+    moduleType: 1,
+    toAccountId: String(target.accountId),
+    invitationType: target.invitationType || 2,
+  });
+  if (data.code === "000000") {
+    var label = target.title
+      ? "《" + String(target.title).slice(0, 18) + "》"
+      : "帖子 " + String(target.id).slice(-6);
+    ctx.out("👍 社区点赞成功: " + label);
+    return true;
+  }
+  ctx.out("❌ 社区点赞失败: " + (data.msg || JSON.stringify(data)));
   return null;
 }
 
@@ -651,23 +841,7 @@ async function zeekrLikeSquarePost(ctx) {
     ctx.out("⚠️ 广场列表里没有可点赞的帖子（前三页都点过了）");
     return null;
   }
-  var data = await zeekrPost(ctx, ZEEKR_API.fabulous, {
-    moduleId: String(target.id),
-    accountId: ctx.accountId,
-    fabulousState: 1,
-    moduleType: 1,
-    toAccountId: String(target.accountId),
-    invitationType: 2,
-  });
-  if (data.code === "000000") {
-    var label = target.title
-      ? "《" + String(target.title).slice(0, 18) + "》"
-      : "帖子 " + String(target.id).slice(-6);
-    ctx.out("👍 社区点赞成功: " + label);
-    return true;
-  }
-  ctx.out("❌ 社区点赞失败: " + (data.msg || JSON.stringify(data)));
-  return null;
+  return zeekrLikePost(ctx, { id: target.id, accountId: target.accountId, title: target.title, invitationType: 2 });
 }
 
 function zeekrTaskDone(t) {
@@ -685,14 +859,17 @@ async function zeekrDoTasks(ctx, forceLike) {
     ctx.out("⚠️ 未取到任务列表（跳过做任务）");
     return { tasks: tasks };
   }
-  await zeekrReadArticle(ctx, tasks);
+  var article = await zeekrReadArticle(ctx, tasks);
   var weekly = null;
   for (var i = 0; i < tasks.length; i++)
     if (tasks[i].name === ZEEKR_TASK_PRAISE) weekly = tasks[i];
   if (!forceLike && zeekrTaskDone(weekly)) {
     ctx.out("👍 每周点赞帖子: 本周已完成，跳过");
   } else {
-    await zeekrLikeSquarePost(ctx);
+    await zeekrSleep(zeekrRand(1500, 4000));
+    /* 真机是读完文章顺手给这篇点赞；这篇已赞过或没读文章时才去广场另找 */
+    if (article && article.isFabulous === 0 && article.id && article.accountId) await zeekrLikePost(ctx, article);
+    else await zeekrLikeSquarePost(ctx);
   }
   return { tasks: tasks };
 }
@@ -1155,7 +1332,17 @@ async function zeekrMain(RT) {
   var info = zeekrParseToken(cfg.token);
   ctx.accountId = info.accountId;
   ctx.loginDeviceId = info.deviceId;
-  ctx.deviceId = cfg.deviceId;
+  /* 真机 HAR：签到页 device_id 是 H5 自己生成的 20 位数字；原生页面才用 Token 里的 lastLoginDeviceId */
+  ctx.h5DeviceId = zeekrH5DeviceId(cfg.deviceId, info.accountId);
+  ctx.nativeDeviceId = info.deviceId;
+  ctx.appSecret = cfg.appSecret;
+  ctx.phoneModel = cfg.phoneModel;
+  ctx.iosVersion = cfg.iosVersion;
+  ctx.ua = cfg.ua;
+  ctx.readWait = cfg.readWait;
+  var authTitle = function () {
+    return "❌ 极氪签到失败（Token 失效，请重新抓取）" + (cfg.tag ? "（" + cfg.tag + "）" : "");
+  };
 
   if (cfg.tokens.length > 1) {
     ctx.out("⚠️ 检测到 " + cfg.tokens.length + " 个 Token，本脚本只用第 1 个（多账号请用青龙版）");
@@ -1209,16 +1396,19 @@ async function zeekrMain(RT) {
     }
   }
   ctx.vlog("App 版本: v" + ctx.appVersion);
+  if (!cfg.ua) ctx.vlog("未配置 UA，使用内置 H5 UA");
 
   if (cfg.mode === "all" || cfg.mode === "sign") {
     var signOk = await zeekrSignIn(ctx);
     if (!signOk) {
       ctx.ok = false;
-      title = "❌ 极氪签到失败（签到接口报错）" + (cfg.tag ? "（" + cfg.tag + "）" : "");
+      title = ctx.authDead
+        ? authTitle()
+        : "❌ 极氪签到失败（签到接口报错）" + (cfg.tag ? "（" + cfg.tag + "）" : "");
       send();
       return { ok: false, lines: lines };
     }
-    var steps = zeekrResolveStepCounts(cfg.stepsRaw);
+    var steps = zeekrResolveStepCounts(cfg.stepsRaw, zeekrDailyRng(ctx.accountId));
     var stepOff = steps === 0;
     var pushSteps = async function () {
       await zeekrSleep(zeekrRand(1200, 2200));
@@ -1284,8 +1474,12 @@ async function zeekrMain(RT) {
       "⚠️ 未领净 " + failures.length + " 项（稍后的补领任务会再试）：" + fmsg.join("；")
     );
     if (ctx.ok) title = "⚠️ 极氪签到（未领净）" + (cfg.tag ? "（" + cfg.tag + "）" : "");
-  } else {
+  } else if (!ctx.authDead) {
     ctx.out("🎉 全部完成！");
+  }
+  if (ctx.authDead) {
+    ctx.ok = false;
+    title = authTitle();
   }
   send();
   return { ok: ctx.ok, lines: lines, result: res };

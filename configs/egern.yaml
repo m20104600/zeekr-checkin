@@ -23,7 +23,7 @@
 #
 # 要拿 Token 去别处用（比如青龙）：**点一下抓取通知即可复制到剪贴板**（不用去设置页找）。
 #
-# 场次：00:01 全流程 → 00:10 只领取；08:10 → 08:20；21:30 → 21:40。
+# 场次：仅 00:01 / 08:10 / 21:30 三场主签到（北京时间），无独立补领定时。
 # 想一次跑完（约 3~5 分钟）就在 env 里加 ZEEKR_POLL: "1" 并把 timeout 提到 600。
 # ══════════════════════════════════════════════════════════════════════
 name: "极氪签到"
@@ -75,7 +75,7 @@ scriptings:
         ZEEKR_MODE: "claim"
         ZEEKR_TAG: "自检"
 
-  # ② 三场定时 + 每场 10 分钟后的补领
+  # ② 仅三场主签到定时
   - schedule:
       name: "极氪签到·凌晨场"
       cron: "1 0 * * *"
@@ -85,14 +85,6 @@ scriptings:
         ZEEKR_MODE: "all"
         ZEEKR_TAG: "凌晨场"
   - schedule:
-      name: "极氪签到·凌晨补领"
-      cron: "10 0 * * *"
-      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
-      timeout: 120
-      env:
-        ZEEKR_MODE: "claim"
-        ZEEKR_TAG: "凌晨场·补领"
-  - schedule:
       name: "极氪签到·早间场"
       cron: "10 8 * * *"
       script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
@@ -101,14 +93,6 @@ scriptings:
         ZEEKR_MODE: "all"
         ZEEKR_TAG: "早间场"
   - schedule:
-      name: "极氪签到·早间补领"
-      cron: "20 8 * * *"
-      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
-      timeout: 120
-      env:
-        ZEEKR_MODE: "claim"
-        ZEEKR_TAG: "早间场·补领"
-  - schedule:
       name: "极氪签到·晚间场"
       cron: "30 21 * * *"
       script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
@@ -116,11 +100,3 @@ scriptings:
       env:
         ZEEKR_MODE: "all"
         ZEEKR_TAG: "晚间场"
-  - schedule:
-      name: "极氪签到·晚间补领"
-      cron: "40 21 * * *"
-      script_url: "https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.egern.js"
-      timeout: 120
-      env:
-        ZEEKR_MODE: "claim"
-        ZEEKR_TAG: "晚间场·补领"

@@ -98,8 +98,8 @@ for fn, pats in regexes.items():
 print("\n== 2b. 结构校验（Loon 插件行 / Egern 模块条目）==")
 loon_txt = read("loon.plugin")
 cron_lines = re.findall(r"^cron (.+)$", loon_txt, re.M)
-check("loon.plugin 6 条 cron 都是新语法 then script(...)",
-      len(cron_lines) == 6 and all('then script("' in c for c in cron_lines), len(cron_lines))
+check("loon.plugin 3 条主签到 cron 都是新语法 then script(...)",
+      len(cron_lines) == 3 and all('then script("' in c for c in cron_lines), len(cron_lines))
 check("loon.plugin 的 cron 都带 timeout",
       all("timeout=" in c for c in cron_lines))
 check("loon.plugin 的抓取行用 http-request if ... then script(...)",
@@ -126,10 +126,10 @@ try:
                 if not isinstance(v, str):
                     bad_entry.append(body)
     check("egern.yaml 每个 scriptings 条目都是单键映射",
-          not bad_entry and len(kinds) >= 7, f"kinds={kinds} bad={len(bad_entry)}")
+          not bad_entry and len(kinds) >= 6, f"kinds={kinds} bad={len(bad_entry)}")
     check("egern.yaml 里有 1 个手动自检脚本（generic）", kinds.count("generic") == 1, kinds)
-    check("egern.yaml 含 1 条 http_request + 6 条 schedule",
-          kinds.count("http_request") == 1 and kinds.count("schedule") == 6, kinds)
+    check("egern.yaml 含 1 条 http_request + 3 条主签到 schedule",
+          kinds.count("http_request") == 1 and kinds.count("schedule") == 3, kinds)
     check("egern.yaml 的 schedule 都带 env（MODE/TAG）",
           all("env" in list(i.values())[0] for i in eg_doc["scriptings"] if "schedule" in i))
 except ImportError:
@@ -151,7 +151,7 @@ loon = read("loon.plugin")
 check("loon.plugin 首行是 #!name（Loon 靠它识别插件）", loon.lstrip().startswith("#!name"), loon.split("\n")[0][:60])
 for k in ("#!desc", "#!author", "[Argument]", "[Script]", "[Mitm]"):
     check(f"loon.plugin 含 {k}", k in loon)
-check("loon.plugin 有 6 条 cron", len(re.findall(r"^cron ", loon, re.M)) == 6,
+check("loon.plugin 有 3 条 cron", len(re.findall(r"^cron ", loon, re.M)) == 3,
       len(re.findall(r"^cron ", loon, re.M)))
 check("loon.plugin 声明了 TOKEN 参数", re.search(r"^TOKEN\s*=", loon, re.M) is not None)
 check("loon.plugin 的 Mitm 域名正确", "hostname = api-gw-toc.zeekrlife.com" in loon)
@@ -172,6 +172,28 @@ for f in sorted(CFG.iterdir()):
     if needle and needle in f.read_text(encoding="utf-8", errors="ignore"):
         hits.append(f.name)
 check("configs/ 里没有真实 Token 片段", not hits, hits)
+
+print("\n== 6. 手机端只保留三场主签到 ==")
+expected_crons = ['1 0 * * *', '10 8 * * *', '30 21 * * *']
+for fn in ('qx.conf', 'loon.plugin', 'loon-snippet.conf', 'stash.yaml', 'egern.yaml'):
+    text = read(fn)
+    if fn == 'egern.yaml':
+        jobs = [x['schedule'] for x in yaml.safe_load(text)['scriptings'] if 'schedule' in x]
+        crons = [x['cron'] for x in jobs]
+        check('Egern 定时均为 all 模式', all(x['env'].get('ZEEKR_MODE') == 'all' for x in jobs))
+    elif fn == 'stash.yaml':
+        jobs = yaml.safe_load(text)['cron']['script']
+        crons = [x['cron'] for x in jobs]
+        check('Stash 定时不含 claim 模式', all('claim' not in x.get('argument', '') for x in jobs))
+    elif fn == 'qx.conf':
+        jobs = [line for line in text.splitlines() if re.match(r'^\d+ \d+ \* \* \* ', line)]
+        crons = [' '.join(line.split()[:5]) for line in jobs]
+        check('QX 定时不含 claim 模式', all('MODE=claim' not in line for line in jobs))
+    else:
+        jobs = re.findall(r'^cron (.+)$', text, re.M)
+        crons = [re.search(r'^"([^"]+)"', line).group(1) for line in jobs]
+        check(fn + ' 定时不含 claim 模式', all('MODE=claim' not in line for line in jobs))
+    check(fn + ' 仅 00:01 / 08:10 / 21:30', crons == expected_crons, crons)
 
 print(f"\n结果: {passed} 通过, {failed} 失败")
 sys.exit(1 if failed else 0)

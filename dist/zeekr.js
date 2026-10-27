@@ -44,7 +44,7 @@ var ZEEKR_DEFAULT_CONFIG = {
  * 依赖注入：RT = { platform, env, http(), notify(), log(), finish() }
  * ========================================================================== */
 
-var ZEEKR_PORT_VERSION = "2.3.2";
+var ZEEKR_PORT_VERSION = "2.3.3";
 /* 签名密钥由 build.py 从本地 checkin.mjs 抽取后注入（避免密钥出现在源码/终端里被安全屏蔽器打码） */
 var ZEEKR_SECRET = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCz09z6e9WOcNq+nUMX8Vq1Xe2EmJxuR3XbturefioF)E(Fl";
 var ZEEKR_BASE = "https://api-gw-toc.zeekrlife.com";
@@ -1437,7 +1437,14 @@ async function zeekrMain(RT) {
       if (hasHttpClient) {
         var req = { url: o.url, method: o.method, headers: o.headers };
         if (o.body !== null && o.body !== undefined) req.body = o.body;
-        if (o.timeoutMs) req.timeout = Math.max(1, Math.round(o.timeoutMs / 1000));
+        if (o.timeoutMs) {
+          // Loon 的 $httpClient.timeout 单位是毫秒（默认 5000）。
+          // Surge / Stash 沿用秒。传成 20 时 Loon 会在 20 毫秒就报 Request timeout。
+          req.timeout =
+            platform === "Loon"
+              ? Math.max(1, Math.round(o.timeoutMs))
+              : Math.max(1, Math.round(o.timeoutMs / 1000));
+        }
         var fn =
           String(o.method || "GET").toUpperCase() === "GET"
             ? $httpClient.get

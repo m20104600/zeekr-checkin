@@ -29,8 +29,17 @@ EP = r"zeekrlife-app-user/v\d/user/info/query"
 # ── 各客户端要用的正则（都只写一层反斜杠）──
 RE_QX = r"^https:\/\/api-gw-toc\.zeekrlife\.com\/" + EP + r"$"
 RE_QX_BROAD = r"^https:\/\/api-gw-toc\.zeekrlife\.com\/"
-RE_LOON = r"/^https:\/\/api-gw-toc\.zeekrlife\.com\/" + EP + r"/"
-RE_LOON_BROAD = r"/^https:\/\/api-gw-toc\.zeekrlife\.com\//"
+# Loon 新语法是 /pattern/flags。路径里的 / 必须写成 \/，否则会提前结束正则。
+# 旧版 http-request 默认忽略大小写；新语法要自己加 i。
+_LOON_HOST = r"^https://api-gw-toc\.zeekrlife\.com/"
+
+
+def _loon_re(body):
+    return "/" + body.replace("/", r"\/") + "/i"
+
+
+RE_LOON = _loon_re(_LOON_HOST + EP + "$")
+RE_LOON_BROAD = _loon_re(_LOON_HOST)
 RE_STASH = r"^https://api-gw-toc\.zeekrlife\.com/" + EP
 RE_STASH_BROAD = r"^https://api-gw-toc\.zeekrlife\.com/"
 RE_STASH_NARROW_FULL = RE_STASH + r"$"
@@ -56,15 +65,7 @@ HEADER = f"""# ═════════════════════�
 """
 
 # ───────────────────────────── Quantumult X ─────────────────────────────
-PHONE_HEADER = HEADER.replace(
-    '# 场次安排（与服务器版 systemd 三场一致；默认「快跑 + 10 分钟后补领」）：\n'
-    '#   00:01 全流程    00:10 只领取（补延迟入账的碎片/能量球）\n'
-    '#   08:10 全流程    08:20 只领取\n'
-    '#   21:30 全流程    21:40 只领取\n',
-    '# 手机端仅三场主签到：00:01 / 08:10 / 21:30（北京时间），无独立补领定时。\n'
-)
-
-qx = PHONE_HEADER.format(client="Quantumult X") + f"""
+qx = HEADER.format(client="Quantumult X") + f"""
 [mitm]
 hostname = api-gw-toc.zeekrlife.com
 
@@ -81,14 +82,17 @@ hostname = api-gw-toc.zeekrlife.com
 [task_local]
 # 凌晨场
 1 0 * * * {REPO}/zeekr.js#{K}={PH}&TAG=凌晨场, tag=极氪签到·凌晨场, enabled=true
+10 0 * * * {REPO}/zeekr.js#MODE=claim&TAG=凌晨场·补领, tag=极氪签到·凌晨补领, enabled=true
 # 早间场
 10 8 * * * {REPO}/zeekr.js#{K}={PH}&TAG=早间场, tag=极氪签到·早间场, enabled=true
+20 8 * * * {REPO}/zeekr.js#MODE=claim&TAG=早间场·补领, tag=极氪签到·早间补领, enabled=true
 # 晚间场
 30 21 * * * {REPO}/zeekr.js#{K}={PH}&TAG=晚间场, tag=极氪签到·晚间场, enabled=true
+40 21 * * * {REPO}/zeekr.js#MODE=claim&TAG=晚间场·补领, tag=极氪签到·晚间补领, enabled=true
 
 # 说明：
 # * QX 的 cron 是 5 段「分 时 日 月 周」，按设备本地时间（北京时间为准）。
-# * QX 脚本执行上限约 30 秒且不可调，所以用快跑，不要用 POLL=1。
+# * QX 脚本执行上限约 30 秒且不可调，所以用「快跑 + 补领」，不要用 POLL=1。
 # * 配上抓取规则后，上面每条 cron 的 {K}= 参数可以整段删掉（用抓到的 Token）。
 # * 抓取规则只在「打开极氪 App」时生效；平时可以关掉 MITM，不影响定时任务。
 """
@@ -102,7 +106,7 @@ loon_plugin = f"""#!name = 极氪签到
 #!tag = 签到,工具
 #!type = normal
 
-""" + PHONE_HEADER.format(client="Loon 插件 —— 添加方式：Loon → 配置 → 插件 → + → 粘贴本文件 URL") + f"""
+""" + HEADER.format(client="Loon 插件 —— 添加方式：Loon → 配置 → 插件 → + → 粘贴本文件 URL") + f"""
 
 [Argument]
 TOKEN = input,"",tag=极氪 Token,desc=可留空：开着 MITM 打开一次极氪 App 就会自动抓取
@@ -111,18 +115,21 @@ TAG = input,"凌晨场",tag=场次标签,desc=只用于通知标题
 [Script]
 # ① 自动抓 Token（打开极氪 App 时触发，抓到就存进 Loon；通知里会带完整 Token）
 #    默认匹配整个 api-gw-toc 域名，最稳；只想匹配「用户信息」接口就把下面那行换成窄版
-http-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
+request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
 # 窄版（开销更小；新版 App 不一定发这个请求）：
-# http-request if ${{url}} ~= {RE_LOON} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
+# request if ${{url}} ~= {RE_LOON} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
 # 若请求阶段不触发，用「响应阶段」兜底（参考脚本 wf021325/qx 用的就是响应阶段；整域名）
-# http-response if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token(响应阶段兜底)", timeout=20
+# response if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token(响应阶段兜底)", timeout=20
 # 调试：临时把抓取那行换成这行（每条命中的请求都会弹通知，证明规则生效了）
-# http-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js", "CAPDEBUG=1") with tag="极氪抓Token(调试)", timeout=20
+# request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js", "CAPDEBUG=1") with tag="极氪抓Token(调试)", timeout=20
 
-# ② 仅三场主签到定时（快跑，单次约 10~25 秒）
+# ② 三场定时（快跑，单次约 10~25 秒）+ 每场 10 分钟后的「只领取」补领
 cron "1 0 * * *" then script("{REPO}/zeekr.js", {{${{TOKEN}}, ${{TAG}}}}) with tag="极氪签到·凌晨场", timeout=60
+cron "10 0 * * *" then script("{REPO}/zeekr.js", "MODE=claim&TAG=凌晨场·补领") with tag="极氪签到·凌晨补领", timeout=60
 cron "10 8 * * *" then script("{REPO}/zeekr.js", "MODE=all&ZEEKR_TAG=早间场") with tag="极氪签到·早间场", timeout=60
+cron "20 8 * * *" then script("{REPO}/zeekr.js", "MODE=claim&TAG=早间场·补领") with tag="极氪签到·早间补领", timeout=60
 cron "30 21 * * *" then script("{REPO}/zeekr.js", "MODE=all&ZEEKR_TAG=晚间场") with tag="极氪签到·晚间场", timeout=60
+cron "40 21 * * *" then script("{REPO}/zeekr.js", "MODE=claim&TAG=晚间场·补领") with tag="极氪签到·晚间补领", timeout=60
 
 # 说明：
 # * 本文件是 Loon **插件**：开头的 #!name / #!desc 等元数据头必须有，
@@ -139,21 +146,24 @@ generic then script("{REPO}/zeekr.js", "MODE=claim&TAG=自检") with tag="极氪
 hostname = api-gw-toc.zeekrlife.com
 """
 
-loon_snippet = PHONE_HEADER.format(client="Loon 配置片段（想合并进自己的 .conf 时用；手机上装插件请用 loon.plugin）") + f"""
+loon_snippet = HEADER.format(client="Loon 配置片段（想合并进自己的 .conf 时用；手机上装插件请用 loon.plugin）") + f"""
 [Script]
 # 自动抓 Token（默认整域名；调试时加 "CAPDEBUG=1" 参数会为每条命中请求弹通知）
-http-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
-# 三场主签到（argument 直接写字面串）
+request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
+# 三场 + 补领（argument 直接写字面串）
 cron "1 0 * * *" then script("{REPO}/zeekr.js", "{K}={PH}&TAG=凌晨场") with tag="极氪签到·凌晨场", timeout=60
+cron "10 0 * * *" then script("{REPO}/zeekr.js", "MODE=claim&TAG=凌晨场·补领") with tag="极氪签到·凌晨补领", timeout=60
 cron "10 8 * * *" then script("{REPO}/zeekr.js", "{K}={PH}&TAG=早间场") with tag="极氪签到·早间场", timeout=60
+cron "20 8 * * *" then script("{REPO}/zeekr.js", "MODE=claim&TAG=早间场·补领") with tag="极氪签到·早间补领", timeout=60
 cron "30 21 * * *" then script("{REPO}/zeekr.js", "{K}={PH}&TAG=晚间场") with tag="极氪签到·晚间场", timeout=60
+cron "40 21 * * *" then script("{REPO}/zeekr.js", "MODE=claim&TAG=晚间场·补领") with tag="极氪签到·晚间补领", timeout=60
 
 [Mitm]
 hostname = api-gw-toc.zeekrlife.com
 """
 
 # ─────────────────────────────── Stash ───────────────────────────────
-stash = PHONE_HEADER.format(client="Stash（存成 xxx.stoverride 当覆写用，或把各段并进配置）") + f"""
+stash = HEADER.format(client="Stash（存成 xxx.stoverride 当覆写用，或把各段并进配置）") + f"""
 # 正则用单引号包起来：YAML 单引号内反斜杠不转义
 http:
   # 开启 MITM 的域名（记得先装好 CA 证书）
@@ -185,13 +195,25 @@ cron:
       timeout: 60
       argument: '{{"{K}":"{PH}","ZEEKR_TAG":"凌晨场"}}'
     - name: zeekr
+      cron: '10 0 * * *'
+      timeout: 60
+      argument: '{{"ZEEKR_MODE":"claim","ZEEKR_TAG":"凌晨场·补领"}}'
+    - name: zeekr
       cron: '10 8 * * *'
       timeout: 60
       argument: '{{"{K}":"{PH}","ZEEKR_TAG":"早间场"}}'
     - name: zeekr
+      cron: '20 8 * * *'
+      timeout: 60
+      argument: '{{"ZEEKR_MODE":"claim","ZEEKR_TAG":"早间场·补领"}}'
+    - name: zeekr
       cron: '30 21 * * *'
       timeout: 60
       argument: '{{"{K}":"{PH}","ZEEKR_TAG":"晚间场"}}'
+    - name: zeekr
+      cron: '40 21 * * *'
+      timeout: 60
+      argument: '{{"ZEEKR_MODE":"claim","ZEEKR_TAG":"晚间场·补领"}}'
 
 script-providers:
   zeekr:
@@ -231,7 +253,7 @@ egern = f"""# ══════════════════════
 #
 # 要拿 Token 去别处用（比如青龙）：**点一下抓取通知即可复制到剪贴板**（不用去设置页找）。
 #
-# 场次：仅 00:01 / 08:10 / 21:30 三场主签到（北京时间），无独立补领定时。
+# 场次：00:01 全流程 → 00:10 只领取；08:10 → 08:20；21:30 → 21:40。
 # 想一次跑完（约 3~5 分钟）就在 env 里加 ZEEKR_POLL: "1" 并把 timeout 提到 600。
 # ══════════════════════════════════════════════════════════════════════
 name: "极氪签到"
@@ -283,7 +305,7 @@ scriptings:
         ZEEKR_MODE: "claim"
         ZEEKR_TAG: "自检"
 
-  # ② 仅三场主签到定时
+  # ② 三场定时 + 每场 10 分钟后的补领
   - schedule:
       name: "极氪签到·凌晨场"
       cron: "1 0 * * *"
@@ -293,6 +315,14 @@ scriptings:
         ZEEKR_MODE: "all"
         ZEEKR_TAG: "凌晨场"
   - schedule:
+      name: "极氪签到·凌晨补领"
+      cron: "10 0 * * *"
+      script_url: "{REPO}/zeekr.egern.js"
+      timeout: 120
+      env:
+        ZEEKR_MODE: "claim"
+        ZEEKR_TAG: "凌晨场·补领"
+  - schedule:
       name: "极氪签到·早间场"
       cron: "10 8 * * *"
       script_url: "{REPO}/zeekr.egern.js"
@@ -301,6 +331,14 @@ scriptings:
         ZEEKR_MODE: "all"
         ZEEKR_TAG: "早间场"
   - schedule:
+      name: "极氪签到·早间补领"
+      cron: "20 8 * * *"
+      script_url: "{REPO}/zeekr.egern.js"
+      timeout: 120
+      env:
+        ZEEKR_MODE: "claim"
+        ZEEKR_TAG: "早间场·补领"
+  - schedule:
       name: "极氪签到·晚间场"
       cron: "30 21 * * *"
       script_url: "{REPO}/zeekr.egern.js"
@@ -308,6 +346,14 @@ scriptings:
       env:
         ZEEKR_MODE: "all"
         ZEEKR_TAG: "晚间场"
+  - schedule:
+      name: "极氪签到·晚间补领"
+      cron: "40 21 * * *"
+      script_url: "{REPO}/zeekr.egern.js"
+      timeout: 120
+      env:
+        ZEEKR_MODE: "claim"
+        ZEEKR_TAG: "晚间场·补领"
 """
 
 # ─────────────────────────────── 青龙 ───────────────────────────────

@@ -39,7 +39,7 @@ function response(url,calls,body){
   for(const k of Object.keys(process.env))if(!(k in saved.env))delete process.env[k];
   Object.assign(process.env,saved.env);
  }
- const source=fs.readFileSync('/root/zeekr-ports/parts/core.js','utf8');
+ const source=fs.readFileSync(require('node:path').join(__dirname,'../parts/core.js'),'utf8');
  for(const value of ['12000-18000','off']){
   const ctx={console,setTimeout,Date};vm.createContext(ctx);vm.runInContext(source,ctx);
   ctx.zeekrSleep=async()=>{};

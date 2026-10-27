@@ -10,7 +10,10 @@
 #   B. 手动填：把参数里的 <把这里换成你的Bearer Token> 换成真 Token。
 #      ⚠️ 千万别把 Token 写进公开托管的脚本文件里（本仓库里只有占位符）。
 #
-# 手机端仅三场主签到：00:01 / 08:10 / 21:30（北京时间），无独立补领定时。
+# 场次安排（与服务器版 systemd 三场一致；默认「快跑 + 10 分钟后补领」）：
+#   00:01 全流程    00:10 只领取（补延迟入账的碎片/能量球）
+#   08:10 全流程    08:20 只领取
+#   21:30 全流程    21:40 只领取
 # 客户端超时能放宽的话，也可以只留 3 条 + POLL=1（脚本自己轮询到领完，约 3~5 分钟）。
 # ══════════════════════════════════════════════════════════════════════
 
@@ -45,13 +48,25 @@ cron:
       timeout: 60
       argument: '{"ZEEKR_TOKEN":"<把这里换成你的Bearer Token>","ZEEKR_TAG":"凌晨场"}'
     - name: zeekr
+      cron: '10 0 * * *'
+      timeout: 60
+      argument: '{"ZEEKR_MODE":"claim","ZEEKR_TAG":"凌晨场·补领"}'
+    - name: zeekr
       cron: '10 8 * * *'
       timeout: 60
       argument: '{"ZEEKR_TOKEN":"<把这里换成你的Bearer Token>","ZEEKR_TAG":"早间场"}'
     - name: zeekr
+      cron: '20 8 * * *'
+      timeout: 60
+      argument: '{"ZEEKR_MODE":"claim","ZEEKR_TAG":"早间场·补领"}'
+    - name: zeekr
       cron: '30 21 * * *'
       timeout: 60
       argument: '{"ZEEKR_TOKEN":"<把这里换成你的Bearer Token>","ZEEKR_TAG":"晚间场"}'
+    - name: zeekr
+      cron: '40 21 * * *'
+      timeout: 60
+      argument: '{"ZEEKR_MODE":"claim","ZEEKR_TAG":"晚间场·补领"}'
 
 script-providers:
   zeekr:

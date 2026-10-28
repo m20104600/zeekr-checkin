@@ -12,6 +12,7 @@ __ZEEKR_SECRET__ 占位符存在，构建时自动填进 dist/。密钥来源按
 用法:  python3 build.py [--check]
 """
 import os
+import json
 import re
 import subprocess
 import sys
@@ -28,6 +29,17 @@ TARGETS = [
     ("tpl/classic.js", "zeekr.js"),
     ("tpl/egern.js", "zeekr.egern.js"),
     ("tpl/qinglong.js", "zeekr.qinglong.js"),
+]
+
+# Stable paths are Qinglong task identities: do not rename during routine updates.
+QL_ADAPTER_VERSION = "3.3.0"
+QL_SLOTS = [
+    ("zeekr_0001_all.js", "1 0 * * *", "all", "凌晨场", "极氪签到·凌晨场"),
+    ("zeekr_0010_claim.js", "10 0 * * *", "claim", "凌晨场·补领", "极氪签到·凌晨补领"),
+    ("zeekr_0810_all.js", "10 8 * * *", "all", "早间场", "极氪签到·早间场"),
+    ("zeekr_0820_claim.js", "20 8 * * *", "claim", "早间场·补领", "极氪签到·早间补领"),
+    ("zeekr_2130_all.js", "30 21 * * *", "all", "晚间场", "极氪签到·晚间场"),
+    ("zeekr_2140_claim.js", "40 21 * * *", "claim", "晚间场·补领", "极氪签到·晚间补领"),
 ]
 
 
@@ -110,12 +122,33 @@ def main() -> int:
             "__ZEEKR_SECRET__", secret
         )
         out = out.replace("__ZEEKR_PORT_VERSION__", version)  # 版本只在 core.js 定义一处
+        out = out.replace("/*__QL_SCHEDULE__*/null", "null")
         path = dist / out_name
         path.write_text(out, encoding="utf-8")
         leak = "__ZEEKR_SECRET__" in out
         print(f"写入 {path} ({len(out)} 字节, {out.count(chr(10)) + 1} 行)"
               + ("  ⚠️ 占位符未替换！" if leak else ""))
         ok = check(path, esm=out_name.endswith(".egern.js")) and ok
+
+    ql_dir = ROOT / "qinglong"
+    ql_dir.mkdir(exist_ok=True)
+    ql_tpl = (ROOT / "tpl/qinglong.js").read_text(encoding="utf-8")
+    for filename, cron, mode, tag, name in QL_SLOTS:
+        slot = json.dumps({"mode": mode, "tag": tag}, ensure_ascii=False)
+        # Keep the cron line FREE of a leading comment '*': legacy parsers
+        # otherwise mistake it for a sixth cron field (seconds).
+        header = (f'/*\nnew Env("{name}");\ncron: {cron}\n'
+                  f'{cron} {filename}\n'
+                  f'青龙订阅适配 v{QL_ADAPTER_VERSION}；默认时区 UTC+8。\n'
+                  '生成文件，请勿直接修改；时间在青龙定时任务中编辑。\n*/\n')
+        out = header + ql_tpl.replace("/*__CORE__*/", core.rstrip("\n"))
+        out = out.replace("__ZEEKR_SECRET__", secret)
+        out = out.replace("__ZEEKR_PORT_VERSION__", version)
+        out = out.replace("/*__QL_SCHEDULE__*/null", slot)
+        target = ql_dir / filename
+        target.write_text(out, encoding="utf-8")
+        print(f"写入 {target}: {cron}, MODE={mode}")
+        ok = check(target) and ok
 
     # 安全检查：确认核心逻辑里没有把密钥写死成明文常量以外的敏感信息
     print("\n自检:")

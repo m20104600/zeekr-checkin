@@ -16,9 +16,8 @@
  *         # ZEEKR_STEPS: "10000"
  *
  * ── 说明 ──────────────────────────────────────────────────────────────
- * **Token 只有一个来源：打开极氪 App 时自动抓取**（存进客户端持久化存储，键 zeekr_val）。
- * 本脚本**不读** ZEEKR_TOKEN 环境变量（模块设置页里也没有 Token 栏）—— 别人给了也会被忽略，
- * 这样不会出现"填了却不生效"的误会（2026-09-20 起）。
+ * 优先使用有效的 TOKEN / ZEEKR_TOKEN 参数（支持网页 WEB_PC Token）；
+ * 未配置或占位符无效时，回退到 App 抓取的持久化存储（键 zeekr_val）。
  * Egern 的 schedule 脚本默认超时 10 秒、最大 600 秒。默认 ZEEKR_POLL=0 时脚本
  * 只查一轮（约 10~20 秒），请把 timeout 设到 120 以上留点余量；
  * 想一次跑完（等奖励入账后领光）就把 ZEEKR_POLL 设为 1，timeout 设 600。
@@ -182,11 +181,13 @@ export default async function (ctx) {
     if (auth && /^Bearer\s/i.test(auth)) {
       var prevEg = zeekrTokenFromStore(storeRead());
       var backEg = prevEg;
-      if (prevEg !== auth) {
+      var capturedDeviceEg = String(headerGet(reqEg.headers, "device_id") || "");
+      var oldDeviceEg = zeekrDeviceIdFromStore(storeRead());
+      if (prevEg !== auth || (capturedDeviceEg && capturedDeviceEg !== oldDeviceEg)) {
         storeWrite(
           JSON.stringify({
             authorization: auth,
-            "device_id": headerGet(ctx.request.headers, "device_id"),
+            "device_id": capturedDeviceEg || (prevEg === auth ? oldDeviceEg : ""),
             ts: Date.now(),
           })
         );
@@ -230,7 +231,7 @@ export default async function (ctx) {
           "\n点这条通知 = Token 已复制到剪贴板（可粘进模块的「极氪 Token」栏）" +
           "\n\n青龙等无法自动抓取的平台，把这行复制过去当 Token：\n" +
           auth;
-        log("[极氪签到] 🔐 可复制给青龙的 Token: " + auth);
+        // Clipboard/capture notification preserves copying; never log credentials.
         try {
           storeSet("zeekr_cap_last", String(nowEg));
           ctx.notify({
@@ -263,34 +264,8 @@ export default async function (ctx) {
     return;
   }
 
-  // Token 只有一个来源：抓取后存在持久化存储里的那份（模块设置页里已经没有 Token 栏了）。
-  // env 里若被谁塞了 ZEEKR_TOKEN（例如 Profile 的模块引用处），**一律忽略**并记一句日志 ——
-  // 免得"填了却不生效"被当成 bug（2026-09-20 用户要求：别再让环境变量误导使用者）。
-  var envTokenEg = "";
-  for (var kEg in env) {
-    if (!Object.prototype.hasOwnProperty.call(env, kEg)) continue;
-    if (zeekrNormKey(kEg) !== "TOKEN") continue;
-    if (String(env[kEg] == null ? "" : env[kEg]).trim()) envTokenEg = String(env[kEg]);
-    delete env[kEg]; // core 是从 env 读 TOKEN 的，这里直接摘掉，确保抓到的那个说了算
-  }
-  var storedEg = zeekrTokenFromStore(storeRead());
-  if (storedEg) {
-    env.ZEEKR_TOKEN = storedEg;
-    env.ZEEKR_DEVICE_ID = zeekrDeviceIdFromStore(storeRead());
-    if (ctx.request && ctx.request.headers)
-      env.ZEEKR_DEVICE_ID = headerGet(ctx.request.headers, "device_id") || "";
-    log("[极氪签到] 🔐 使用抓取到的 Token（持久化存储 zeekr_val）");
-  } else {
-    log(
-      "[极氪签到] ⚠️ 还没抓到过 Token：把模块里的「抓取 Token」开着，打开一次极氪 App 即可（没有手填的地方）"
-    );
-  }
-  if (envTokenEg)
-    log(
-      "[极氪签到] ⚠️ env 里带了 TOKEN（长度 " +
-        envTokenEg.length +
-        "），本脚本只认抓取到的那份，已忽略"
-    );
+  var tokenSource = zeekrSelectStoredConfig(env, storeRead());
+  if (tokenSource === "missing") log("[极氪签到] ⚠️ 缺少 Token：请显式配置 TOKEN/ZEEKR_TOKEN，或打开极氪 App 抓取");
 
   function http(o) {
     var opts = { timeout: o.timeoutMs || 20000 };
@@ -329,9 +304,10 @@ export default async function (ctx) {
 
   var RT = {
     platform: "Egern",
-    // 缺 Token 时的提示语：Egern 版不给手填（模块设置页里没有 Token 栏），只能靠抓取
+    // Explicit credentials and captured storage are both supported.
     tokenHint:
-      "❌ 缺少 Token：把模块里的「抓取 Token」开着，打开一次极氪 App 就会自动抓取并存起来（Egern 版没有手填 Token 的地方）",
+      "❌ 缺少 Token：请配置 TOKEN/ZEEKR_TOKEN，或打开「抓取 Token」并进入极氪 App 自动保存",
+    tokenSource: tokenSource,
     env: env,
     http: http,
     notify: notify,

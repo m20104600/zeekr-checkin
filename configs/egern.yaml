@@ -9,11 +9,9 @@
 # 注意：Egern 的模块文件需要 name/description 这类元数据；YAML 里正则必须用
 # **单引号**（双引号里 \d 是非法转义，会直接报「发生错误」——之前就是这个报错）。
 #
-# Token：默认走「打开极氪 App 自动抓取」（第一个 http_request 规则，需开 MITM）；
-#        抓到的 Token 存在客户端持久化存储（键 zeekr_val），定时任务自动读。
-#        模块设置页里**刻意没有 Token 栏** —— Egern 不许脚本回写设置页，抓到的东西
-#        进不了那个输入框，放一个填不进去的框只会让人误会（2026-09-20 用户要求删掉）。
-#        本脚本**不读** env 里的 TOKEN（别人在 Profile 里塞了也一律忽略）：Token 唯一来源就是抓取。
+# Token：支持网页登录取得的 WEB_PC Token，或 App 抓取 Token；自动按 JWT 区分。
+#        模块设置的「手动 Token」填有效值时优先；留空/占位符则读取抓取存储。
+#        设置页不会被脚本回写；手动填写不是抓取结果的显示栏。
 #
 # 抓取开关：模块设置里的「抓取 Token」——
 #        开（默认）= 打开极氪 App 就抓取并存起来，Token 变了立刻弹一条通知，
@@ -33,6 +31,14 @@ homepage: "https://github.com/m20104600/zeekr-checkin"
 icon: "car.fill"
 
 env_schema:
+  ZEEKR_TOKEN:
+    name: "手动 Token（可选）"
+    description: "粘贴网页登录取得的 WEB_PC Token 或 App Token；留空则读取抓取存储。不会自动回写此栏。"
+    default_value: ""
+  ZEEKR_DEVICE_ID:
+    name: "请求设备 ID（可选）"
+    description: "显式设置优先于存储；网页 Token 的设备 ID 0 会保留，通常留空即可。"
+    default_value: ""
   ZEEKR_CAPTURE:
     name: "抓取 Token"
     description: "开 = 打开极氪 App 就抓取 Token 并存进持久化存储（抓到会弹一条通知）；关 = 不抓取、不写存储、不弹任何通知"

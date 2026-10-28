@@ -15,10 +15,7 @@ function source(file) {
   for (const file of ['tpl/classic.js', 'dist/zeekr.js']) {
     for (const platform of ['Loon', 'Stash', 'Surge']) {
       let captured;
-      let code = source(file).replace('/*__CORE__*/', `
-        function zeekrCleanToken() { return ''; }
-        function zeekrTokenFromStore() { return ''; }
-      `);
+      let code = source(file).replace('/*__CORE__*/', source('parts/core.js'));
       assert(code.includes('  zeekrMain(RT)\n    .then'));
       code = code.replace('  zeekrMain(RT)\n    .then', '  __review(RT)\n    .then');
       const box = {

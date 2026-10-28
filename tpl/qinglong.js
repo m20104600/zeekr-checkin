@@ -3,30 +3,37 @@
  * 适用：青龙面板 / 任意 Node.js ≥ 14（Node 18+ 更好，有内置 fetch）
  *
  * ── 部署 ──────────────────────────────────────────────────────────────
- * 1) 把本文件上传到青龙：脚本管理 → 新建脚本 / 或者放进 /ql/scripts/
- *    （也可以在「订阅管理」里订阅存放本文件的仓库，脚本名填 zeekr.qinglong.js）
- * 2) 「定时任务」新建任务：
- *      任务名称: 极氪签到·凌晨场
- *      命令:     task zeekr.qinglong.js
- *      定时规则: 1 0 * * *
- *    再建两条只领取的补领任务（延迟入账的碎片/能量球）：
- *      命令:     task zeekr.qinglong.js
- *      定时规则: 10 0 * * * / 20 8 * * * / 40 21 * * *  (见 README)
- * 3) 「环境变量」添加：
+ * 推荐：按 README 的「青龙订阅」说明订阅仓库，白名单填 zeekr_.*\.js$。
+ * 订阅会下载 qinglong/ 下六个独立入口并自动建六条任务，无需手工填写六次。
+ * 每条任务自带 all/claim 模式；时间在青龙「定时任务」编辑，不修改脚本。
+ * 本通用文件 dist/zeekr.qinglong.js 保留给手动部署/任意 Node.js 使用：
+ *   上传本地脚本后以 task zeekr.qinglong.js 执行；不要把脚本网址当命令。
+ *   手动模式的 ZEEKR_MODE / ZEEKR_TAG 仍由环境变量控制。
+ * 「环境变量」添加：
  *      ZEEKR_TOKEN = Bearer eyJ...      ← 必填，多账号用换行 / & 分隔，
  *                                          或 ZEEKR_TOKEN_1、ZEEKR_TOKEN_2 ...
  *      ZEEKR_MODE  = all                ← all | sign | claim（补领任务用 claim）
  *      ZEEKR_TAG   = 凌晨场              ← 只影响通知标题
  *      ZEEKR_POLL  = 0                  ← 1 = 脚本内轮询领光（需放宽任务超时）
- *      ZEEKR_STEPS = 10000              ← 或 off 跳过步数上报
+ *      ZEEKR_STEPS = 10000-20000        ← 可选；默认每轮随机，off 跳过步数上报
  *      ZEEKR_APPVER= 4.9.33             ← 可选，跳过 iTunes 版本查询
  *      ZEEKR_NOTIFY= 0                  ← 可选，关闭通知
+ *      ZEEKR_NICKNAME_1 = 家用车        ← 可选，TOKEN_1 / VAL_1 对应的通知昵称
+ *      ZEEKR_NICKNAMES = ["家用车","通勤"] ← 可选，JSON 数组按账号执行顺序匹配
+ *    昵称优先级：对应编号 NICKNAME_n > NICKNAMES 数组 > JWT sub 中
+ *    accountInfoDTO.nickname > accountInfoDTO.userName；空值跳过，不查资料接口。
+ *    无编号的 TOKEN 多账号按执行位置使用 NICKNAME_1、_2 ...；有编号时按源编号。
+ *    执行顺序沿用环境变量名排序、再按行/& 拆分；昵称显示在完整账号 ID 后。
+ *    昵称移除换行/控制字符/通知标题括号，最多显示 40 个 Unicode 字符。
  *    通知默认走青龙自带 sendNotify.js（在 环境变量/通知设置 里配好推送渠道）；
  *    找不到 sendNotify 时可用 ZEEKR_TG_BOT_TOKEN + ZEEKR_TG_CHAT_ID 走 Telegram。
  */
 
 /* 一般不用改这里，参数走环境变量 */
 var ZEEKR_DEFAULT_CONFIG = {};
+
+// Generated subscription entrypoints pin mode/tag; the generic manual script does not.
+var ZEEKR_QL_SCHEDULE = /*__QL_SCHEDULE__*/null;
 
 /* ================= 以下为逻辑，一般不需要修改 ================= */
 
@@ -185,7 +192,7 @@ function zeekrQLTokens() {
     var parts = String(process.env[keys[i]] || "").split(/[\r\n&]+/);
     for (var j = 0; j < parts.length; j++) {
       var t = parts[j].trim();
-      if (t && t.charAt(0) !== "#") list.push(t);
+      if (t && t.charAt(0) !== "#") list.push({ raw: t, index: (keys[i].match(/_(\d+)$/) || [])[1] || "" });
     }
   }
   return list;
@@ -202,9 +209,43 @@ function zeekrQLVals() {
   var list = [];
   for (var i = 0; i < keys.length; i++) {
     var raw = String(process.env[keys[i]] || "").trim();
-    if (raw && raw.charAt(0) !== "#") list.push(raw);
+    if (raw && raw.charAt(0) !== "#") list.push({ raw: raw, index: (keys[i].match(/_(\d+)$/) || [])[1] || "" });
   }
   return list;
+}
+
+/** 通知身份仅本地解析 JWT，不请求用户资料，也不输出原始凭据。 */
+function zeekrQLDisplayText(value) {
+  if (typeof value !== "string" && typeof value !== "number") return "";
+  return Array.from(String(value)
+    .replace(/[\x00-\x1f\x7f-\x9f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g, " ")
+    .replace(/[【】]/g, " ")
+    .replace(/\s+/g, " ").trim()).slice(0, 40).join("");
+}
+
+function zeekrQLIdentity(raw) {
+  var token = String(raw || "").trim();
+  try {
+    if (token.charAt(0) === "{") {
+      var stored = JSON.parse(token);
+      token = stored.authorization || stored.Authorization || stored.token || stored.TOKEN || stored.ZEEKR_TOKEN || "";
+    }
+    var part = String(token).replace(/^Bearer\s+/i, "").split(".")[1];
+    var preserveId = function (text) {
+      // accountId can be an unquoted 64-bit integer: quote it BEFORE JSON.parse.
+      return text.replace(/("accountId"\s*:\s*)(\d+)(?=\s*[,}])/g, '$1"$2"');
+    };
+    var payload = JSON.parse(preserveId(Buffer.from(part, "base64").toString("utf8")));
+    var sub = typeof payload.sub === "string" ? JSON.parse(preserveId(payload.sub)) : payload.sub;
+    var info = sub && sub.accountInfoDTO || {};
+    var id = String(info.accountId || "");
+    return {
+      accountId: /^[a-zA-Z0-9_-]{1,80}$/.test(id) ? id : "",
+      nickname: zeekrQLDisplayText(info.nickname) || zeekrQLDisplayText(info.userName),
+    };
+  } catch (e) {
+    return { accountId: "", nickname: "" };
+  }
 }
 
 /** 复制全局 ZEEKR_* 环境变量（每个账号一份，互不干扰） */
@@ -212,7 +253,21 @@ function zeekrQLBaseEnv() {
   var env = {};
   for (var k in process.env) {
     if (!Object.prototype.hasOwnProperty.call(process.env, k)) continue;
+    // Credentials are injected below, never leave a global alias that can win
+    // core's case-insensitive normalization for a different indexed account.
+    if (/^ZEEKR_TOKEN(_\d+)?$/i.test(k) || /^(ZEEKR_)?VAL(_\d+)?$/i.test(k)) continue;
     if (/^ZEEKR/i.test(k)) env[k] = process.env[k];
+  }
+  if (ZEEKR_QL_SCHEDULE) {
+    // Remove accepted case/separator aliases before pinning this task's mode.
+    // Never mutate process.env or affect another task/account's configuration.
+    for (var name in env) {
+      if (!Object.prototype.hasOwnProperty.call(env, name)) continue;
+      var normalized = zeekrNormKey(name);
+      if (normalized === "MODE" || normalized === "TAG") delete env[name];
+    }
+    env.ZEEKR_MODE = ZEEKR_QL_SCHEDULE.mode;
+    env.ZEEKR_TAG = ZEEKR_QL_SCHEDULE.tag;
   }
   return env;
 }
@@ -233,12 +288,18 @@ function zeekrQLBaseEnv() {
     process.exit(1);
   }
 
+  var nicknames = [];
+  try {
+    var parsedNames = JSON.parse(process.env.ZEEKR_NICKNAMES || "[]");
+    if (Array.isArray(parsedNames)) nicknames = parsedNames;
+  } catch (e) {} // Invalid optional nickname JSON must never block account execution.
   var blocks = [];
   var fails = 0;
   for (var i = 0; i < count; i++) {
     var env = zeekrQLBaseEnv();
-    if (tokens.length) env.ZEEKR_TOKEN = tokens[i];
-    else env.ZEEKR_VAL = vals[i];
+    var account = tokens.length ? tokens[i] : vals[i];
+    if (tokens.length) env.ZEEKR_TOKEN = account.raw;
+    else env.ZEEKR_VAL = account.raw;
     var RT = {
       platform: "青龙",
       tokenHint:
@@ -262,12 +323,19 @@ function zeekrQLBaseEnv() {
       };
     }
     if (r && r.ok === false) fails++;
-    var label =
-      count > 1 ? "【账号 " + (i + 1) + "/" + count + "】\n" : "";
+    var identity = zeekrQLIdentity(account.raw);
+    // Explicit suffix matches TOKEN_n / VAL_n; unindexed input uses run position.
+    // Then the JSON array (run order), then JWT nickname / userName.
+    var nickname = zeekrQLDisplayText(process.env["ZEEKR_NICKNAME_" + (account.index || (i + 1))]) ||
+      zeekrQLDisplayText(nicknames[i]) || identity.nickname;
+    var detail = [identity.accountId, nickname].filter(function (s) { return !!s; }).join(" ");
+    var label = "【账号 " + (i + 1) + "/" + count + (detail ? " · " + detail : "") + "】\n";
     blocks.push(label + (r && r.lines ? r.lines.join("\n") : ""));
   }
 
-  var tag = String(process.env.ZEEKR_TAG || "").trim();
+  var tag = String(
+    ZEEKR_QL_SCHEDULE ? ZEEKR_QL_SCHEDULE.tag : (process.env.ZEEKR_TAG || "")
+  ).trim();
   var title =
     (fails ? "❌" : "✅") +
     " 极氪签到（青龙" +

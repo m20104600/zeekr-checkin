@@ -4,7 +4,7 @@
  * 依赖注入：RT = { platform, env, http(), notify(), log(), finish() }
  * ========================================================================== */
 
-var ZEEKR_PORT_VERSION = "2.3.3";
+var ZEEKR_PORT_VERSION = "3.3.0";
 /* 签名密钥由 build.py 从本地 checkin.mjs 抽取后注入（避免密钥出现在源码/终端里被安全屏蔽器打码） */
 var ZEEKR_SECRET = "__ZEEKR_SECRET__";
 var ZEEKR_BASE = "https://api-gw-toc.zeekrlife.com";
@@ -20,6 +20,11 @@ var ZEEKR_API = {
   claimSevenDayLottery: "/zeekrlife-mp-mkt/toc/v1/applyV2/apply",
   claimWalk: "/zeekrlife-mp-val/v1/carEnergy/collectedAllEnergy",
   claimIntegral: "/zeekrlife-mp-val/v1/carEnergy/collectIntegralZeekrBalls",
+  festival: "/zeekrlife-mp-sic/v1/feign/signincalendar/festival",
+  taskGet: "/zeekrlife-mp-sic/v1/signinzgreen/toc/taskGet",
+  behaviorTrack: "/zeekrlife-search-api/search/open/api/new/behaviorTrack",
+  commentList: "/zeekrlife-bbs-theme/v1/comment/pub/list",
+  recommend: "/zeekrlife-bbs-theme/v1/invitation/pub/recommend",
 };
 var ZEEKR_VAL_DEBRIS = "DEBRIS";
 var ZEEKR_VAL_WALK = "CARBON_VALUE";
@@ -217,6 +222,23 @@ function zeekrResolveStepCounts(value, rng) {
 function zeekrRand(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
+// Opt-in time settings: strict integer/range, finite before sampling, bounded.
+function zeekrResolveSeconds(value, cap) {
+  var text = String(value == null ? "" : value).trim();
+  var range = text.match(/^(\d+)\s*-\s*(\d+)$/), min, max;
+  if (range) { min = Number(range[1]); max = Number(range[2]); }
+  else if (/^\d+$/.test(text)) { min = max = Number(text); }
+  else return 0;
+  if (min < 0 || max < min || max > 9007199254740991) return 0;
+  return zeekrRand(Math.min(min, cap), Math.min(max, cap));
+}
+function zeekrDailyRng(accountId) {
+  var day = zeekrCSTDate(Date.now());
+  return function (min, max) {
+    var hash = parseInt(zeekrSha1Hex("zeekr-steps:" + day + ":" + (accountId || "")).slice(0, 12), 16);
+    return min + (hash % (max - min + 1));
+  };
+}
 function zeekrRandomString(len) {
   var chars = "ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz1234567890";
   var s = "";
@@ -323,6 +345,13 @@ function zeekrTokenFromStore(raw) {
  *   MAX        领取阶段上限（秒，默认 600）
  *   APPVER     App 版本号，跳过 iTunes 查询，例如 4.9.33
  *   LIKE       1 = 不管本周是否已完成都点一次赞（排查用）
+ *   NATIVE     1 + APP_SECRET + 非零 JWT 设备 ID 才为文章/点赞启用原生头；默认仍 H5
+ *   NATIVE_REQUESTS  1 = 另启用原生阅读页行为/评论/推荐（仍需 NATIVE）
+ *   PAGE_CONTEXT    1 = 可选 festival/taskGet 预请求（网络错误软失败；认证错误立即退出）
+ *   UA / PHONE_MODEL / IOS_VERSION  可选覆盖 H5 UA / 原生机型 / 系统版本
+ *   READWAIT / DELAY  阅读停留 / 启动延迟秒数或范围，默认 0，每项最多 120 秒
+ *   DAILYSTEPS 1 = 按北京时间日期+账号固定范围步数；默认每次运行重新随机
+ *   附加请求和等待共享预算：QX 5秒（不发附加请求）、其它手机15秒、Node/青龙120秒。
  *   NOTIFY     0 = 不发通知
  *   CAPSHOW    1(默认) = 抓到 Token 时在通知里显示完整 Token（方便复制到青龙）；
  *              0 = 只显示账号/有效期（Token 仍会存进客户端持久化存储）
@@ -346,6 +375,28 @@ function zeekrDeviceIdFromStore(raw) {
   }
 }
 
+/** Select usable explicit credentials first; placeholders must not shadow storage.
+ * Return metadata only: neither credential nor device ID belongs in diagnostics.
+ */
+function zeekrSelectStoredConfig(env, storedRaw) {
+  var explicit = "";
+  var hasDevice = false;
+  for (var k in env) {
+    if (!Object.prototype.hasOwnProperty.call(env, k)) continue;
+    var name = zeekrNormKey(k);
+    if (name === "DEVICEID" && env[k] != null && String(env[k]).trim() !== "") hasDevice = true;
+    if (name !== "TOKEN") continue;
+    var cleaned = String(env[k] == null ? "" : env[k]).split(/[\r\n&]+/).map(zeekrCleanToken).filter(function (value) { return !!value; }).join("\n");
+    if (cleaned) explicit = cleaned;
+    delete env[k];
+  }
+  var selected = explicit || zeekrTokenFromStore(storedRaw);
+  if (selected) env.ZEEKR_TOKEN = selected;
+  // A captured device belongs to the captured credential, never to an explicit one.
+  if (!explicit && selected && !hasDevice) env.ZEEKR_DEVICE_ID = zeekrDeviceIdFromStore(storedRaw);
+  return explicit ? "env" : selected ? "storage" : "missing";
+}
+
 function zeekrLoadConfig(RT) {
   var raw = RT.env || {};
   var v = {};
@@ -362,7 +413,17 @@ function zeekrLoadConfig(RT) {
   };
   var cfg = {
     token: str("TOKEN", ""),
-    deviceId: str("DEVICE_ID", ""),
+    deviceId: str("DEVICEID", ""),
+    appSecret: str("APPSECRET", ""),
+    native: str("NATIVE", "0") === "1",
+    nativeRequests: str("NATIVEREQUESTS", "0") === "1",
+    pageContext: str("PAGECONTEXT", "0") === "1",
+    phoneModel: str("PHONEMODEL", "iPhone17,1"),
+    iosVersion: str("IOSVERSION", "26.0"),
+    ua: str("UA", ""),
+    readWait: str("READWAIT", ""),
+    delay: str("DELAY", ""),
+    dailySteps: str("DAILYSTEPS", "0") === "1",
     mode: str("MODE", "all").toLowerCase(),
     tag: str("TAG", ""),
     stepsRaw: str("STEPS", ""),
@@ -397,11 +458,19 @@ function zeekrLoadConfig(RT) {
   return cfg;
 }
 
+// Protect integer lexemes only (not JSON strings) before native JSON parsing.
+function zeekrParseJsonExact(raw) {
+  return JSON.parse(raw.replace(
+    /"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g,
+    function (value) { return /^-?\d{16,}$/.test(value) ? '"' + value + '"' : value; }
+  ));
+}
+
 function zeekrParseToken(token) {
   var part = String(token).replace(/^Bearer\s+/i, "").split(".")[1] || "";
   var payload = {};
   try {
-    payload = JSON.parse(zeekrB64Decode(part));
+    payload = zeekrParseJsonExact(zeekrB64Decode(part));
   } catch (e) {
     payload = {};
   }
@@ -411,7 +480,7 @@ function zeekrParseToken(token) {
       : JSON.stringify(payload.sub || {});
   var sub = {};
   try {
-    sub = JSON.parse(subRaw);
+    sub = zeekrParseJsonExact(subRaw);
   } catch (e2) {
     sub = {};
   }
@@ -428,12 +497,13 @@ function zeekrParseToken(token) {
     "";
   var exp = (payload.exp || 0) * 1000;
   var daysLeft = exp ? Math.floor((exp - Date.now()) / 86400000) : 999;
-  return { accountId: accountId, deviceId: deviceId, exp: exp, daysLeft: daysLeft };
+  var sourcePlatform = (sub.accountLoginInfoDTO && sub.accountLoginInfoDTO.platform) || "";
+  return { accountId: accountId, deviceId: String(deviceId), sourcePlatform: sourcePlatform, exp: exp, daysLeft: daysLeft };
 }
 
 /* ---------------- 请求层 ---------------- */
 
-function zeekrHeaders(token, appVersion, deviceId) {
+function zeekrHeaders(token, appVersion, deviceId, sourcePlatform) {
   var timestamp = Date.now();
   var nonce = zeekrRandomString(15);
   return {
@@ -451,7 +521,7 @@ function zeekrHeaders(token, appVersion, deviceId) {
     Version: "2",
     app_type: "h5",
     app_code: "toc_h5_green_zeekrapp",
-    platform: "",
+    platform: sourcePlatform === "WEB_PC" ? "WEB_PC" : "",
     platform_h5: "IOS",
     risk_platform: "h5",
     riskTimeStamp: String(timestamp),
@@ -470,13 +540,96 @@ function zeekrHeaders(token, appVersion, deviceId) {
   };
 }
 
-async function zeekrRequest(ctx, path, method, body) {
+// Keep the legacy four-argument H5 helper for Issue #6 consumers; endpoint
+// selection belongs here, not in JWT parsing or runtime-specific wrappers.
+function zeekrPathIn(list, path) {
+  return list.indexOf(String(path).split("?")[0]) >= 0;
+}
+function zeekrH5Headers(ctx, path, method) {
+  var h = zeekrHeaders(ctx.token, ctx.appVersion, ctx.deviceId, ctx.sourcePlatform);
+  if (ctx.ua) h["User-Agent"] = ctx.ua;
+  if (method === "GET") delete h["Content-Type"];
+  if (!zeekrPathIn([ZEEKR_API.walkData, ZEEKR_API.uncollected], path)) delete h.x_gray_code;
+  if (!zeekrPathIn([ZEEKR_API.claimDebris], path)) delete h.riskVersion;
+  return h;
+}
+function zeekrNativeHeaders(ctx, method) {
+  var timestamp = String(Date.now()), nonce = "";
+  for (var i = 0; i < 8; i++) nonce += String(zeekrRand(0, 9));
+  var h = {
+    "User-Agent": "ZeekrLife/" + ctx.appVersion + " (iPhone; iOS " + ctx.iosVersion + "; Scale/3.00)" + ctx.nativeDeviceId,
+    x_ca_sign: zeekrSha1Hex([ctx.appSecret, nonce, timestamp].sort().join("")),
+    app_code: "toc_ios_zeekrapp", app_version: ctx.appVersion,
+    device_id: ctx.nativeDeviceId, phone_version: ctx.iosVersion,
+    x_ca_nonce: nonce, x_ca_key: "APP-SIGN-SECRET-KEY", Version: "2",
+    x_ca_timestamp: timestamp, "request-original": "zeekr-app",
+    WorkspaceId: "prod", riskVersion: "1", Authorization: ctx.token,
+    "Accept-Language": "zh-Hans-CN;q=1", app_type: "IOS",
+    phone_model: ctx.phoneModel, x_ca_secret: ctx.appSecret, Accept: "*/*",
+  };
+  if (method !== "GET") h["Content-Type"] = "application/json";
+  return h;
+}
+function zeekrBuildHeaders(ctx, path, method) {
+  if (ctx.nativeEnabled && zeekrPathIn([
+    ZEEKR_API.articleDetail, ZEEKR_API.fabulous, ZEEKR_API.squareList,
+    ZEEKR_API.behaviorTrack, ZEEKR_API.commentList, ZEEKR_API.recommend,
+  ], path)) return zeekrNativeHeaders(ctx, method);
+  return zeekrH5Headers(ctx, path, method);
+}
+
+// Optional page context/telemetry must never block the actual business action.
+// Authentication exceptions deliberately escape to the main abort boundary.
+async function zeekrOptionalRequest(ctx, path, method, body) {
+  if (ctx.authDead) throw zeekrAuthError(ctx);
+  // The existing QX adapter has no cancellation/deadline support. Exclude added
+  // context HTTP there rather than promise a timeout it cannot actually enforce.
+  if (ctx.RT.platform === "Quantumult X") return null;
+  if (ctx.optionalRemainingMs <= 0) return null;
+  var startedAt = Date.now();
+  try {
+    return await zeekrRequest(ctx, path, method, body, Math.min(5000, ctx.optionalRemainingMs));
+  } catch (err) {
+    if (err && err.zeekrAuth) throw err;
+    ctx.vlog("可选页面请求失败，跳过");
+    return null;
+  } finally {
+    ctx.optionalRemainingMs = Math.max(0, ctx.optionalRemainingMs - Math.max(0, Date.now() - startedAt));
+  }
+}
+async function zeekrOptionalPause(ctx, value) {
+  if (ctx.authDead) throw zeekrAuthError(ctx);
+  var ms = Math.min(zeekrResolveSeconds(value, 120) * 1000, ctx.optionalRemainingMs);
+  if (ms > 0) {
+    ctx.optionalRemainingMs -= ms;
+    await zeekrSleep(ms);
+  }
+}
+
+// Authentication rejection is not necessarily expiration. Do not classify a
+// temporary login-service outage merely because its message contains 登录.
+function zeekrIsAuthDead(status, data) {
+  if (Number(status) === 401 || Number(status) === 403) return true;
+  if (!data || data.code === "000000") return false;
+  if (String(data.code) === "000009") return true;
+  return /认证失败|未授权|授权失败|登录(?:已)?(?:失效|过期)|未登录|请重新登录|请先登录|token\s*(?:失效|过期|无效|invalid|expired)/i.test(String(data.msg || data.message || ""));
+}
+
+function zeekrAuthError(ctx) {
+  ctx.authDead = true;
+  var err = new Error("认证失败，已停止本次后续请求；请检查或重新抓取 Token（不一定是过期）");
+  err.zeekrAuth = true;
+  return err;
+}
+
+async function zeekrRequest(ctx, path, method, body, timeoutMs) {
+  if (ctx.authDead) throw zeekrAuthError(ctx);
   var res = await ctx.RT.http({
     method: method,
     url: ZEEKR_BASE + path,
-    headers: zeekrHeaders(ctx.token, ctx.appVersion, ctx.deviceId),
+    headers: zeekrBuildHeaders(ctx, path, method),
     body: method === "GET" ? null : JSON.stringify(body === undefined ? {} : body),
-    timeoutMs: 20000,
+    timeoutMs: timeoutMs || 20000,
   });
   var text = res && res.body !== undefined && res.body !== null ? res.body : "";
   if (typeof text !== "string") {
@@ -486,11 +639,21 @@ async function zeekrRequest(ctx, path, method, body) {
       text = String(text);
     }
   }
+  var data;
   try {
-    return JSON.parse(text);
+    data = zeekrParseJsonExact(text);
   } catch (e2) {
-    return { code: "PARSE_ERROR", msg: String(text).slice(0, 200) };
+    data = { code: "PARSE_ERROR", msg: "响应不是有效 JSON" };
   }
+  if (zeekrIsAuthDead(res && res.status, data)) throw zeekrAuthError(ctx);
+  // batchApply may report a successful outer envelope while an individual
+  // command is rejected for authentication. Inspect before retry or any sleep.
+  if (path === ZEEKR_API.claimDebris && data && Object.prototype.toString.call(data.data) === "[object Array]") {
+    for (var authIndex = 0; authIndex < data.data.length; authIndex++) {
+      if (zeekrIsAuthDead(200, data.data[authIndex])) throw zeekrAuthError(ctx);
+    }
+  }
+  return data;
 }
 
 function zeekrGet(ctx, path) {
@@ -510,6 +673,7 @@ function zeekrEncodeStepSecret(stepCounts, layers) {
 /* ---------------- 各业务动作 ---------------- */
 
 async function zeekrSignIn(ctx) {
+  if (ctx.pageContext) await zeekrOptionalRequest(ctx, ZEEKR_API.festival, "POST", {});
   var data = await zeekrPost(ctx, ZEEKR_API.signIn, {});
   if (data.code === "000000") {
     var info = (data.data && data.data.signInZgreenInfo) || [];
@@ -557,6 +721,7 @@ async function zeekrSyncWalk(ctx, steps, sourceType) {
 }
 
 async function zeekrGetTasks(ctx) {
+  if (ctx.pageContext) await zeekrOptionalRequest(ctx, ZEEKR_API.taskGet, "GET");
   var data = await zeekrPost(ctx, ZEEKR_API.taskMsg, {
     activityRecord: "medal_compose_task_manage",
     optional: { fetchTaskTakeAndReachTimesInfo: true },
@@ -573,21 +738,31 @@ async function zeekrReadArticle(ctx, tasks) {
   for (var i = 0; i < tasks.length; i++)
     if (tasks[i].name === ZEEKR_TASK_ARTICLE) task = tasks[i];
   if (!task) return null;
+  if (zeekrTaskDone(task)) {
+    ctx.out("📖 阅读文章: 今日已完成，跳过");
+    return null;
+  }
   var url = (task.doc && task.doc.path) || "";
   var m = url.match(/acticleId=([^&]+)/);
   if (!m) {
     ctx.out("❌ 阅读文章: 任务里没拿到文章 ID");
     return null;
   }
-  var data = await zeekrGet(
-    ctx,
-    ZEEKR_API.articleDetail + "?id=" + m[1]
-  );
+  if (ctx.nativeRequests) await zeekrOptionalRequest(ctx, ZEEKR_API.behaviorTrack, "POST", {
+    mobileType: "iOS", deviceId: ctx.nativeDeviceId, accountId: ctx.accountId,
+    appVersion: ctx.appVersion, type: 1, businessId: m[1],
+  });
+  var data = await zeekrGet(ctx, ZEEKR_API.articleDetail + "?id=" + m[1]);
   if (data.code === "000000") {
     ctx.out(
       "📖 阅读文章成功: " + ((data.data && data.data.title) || m[1])
     );
-    return true;
+    if (ctx.nativeRequests) {
+      await zeekrOptionalRequest(ctx, ZEEKR_API.commentList + "?moduleId=" + m[1] + "&moduleType=1&pageNo=1&pageSize=15", "GET");
+      await zeekrOptionalRequest(ctx, ZEEKR_API.recommend, "POST", { id: m[1] });
+    }
+    await zeekrOptionalPause(ctx, ctx.readWait);
+    return data.data || { id: m[1] };
   }
   ctx.out("❌ 阅读文章失败: " + (data.msg || JSON.stringify(data)));
   return null;
@@ -618,6 +793,10 @@ async function zeekrLikeSquarePost(ctx) {
     ctx.out("⚠️ 广场列表里没有可点赞的帖子（前三页都点过了）");
     return null;
   }
+  return zeekrLikePost(ctx, target);
+}
+
+async function zeekrLikePost(ctx, target) {
   var data = await zeekrPost(ctx, ZEEKR_API.fabulous, {
     moduleId: String(target.id),
     accountId: ctx.accountId,
@@ -652,14 +831,15 @@ async function zeekrDoTasks(ctx, forceLike) {
     ctx.out("⚠️ 未取到任务列表（跳过做任务）");
     return { tasks: tasks };
   }
-  await zeekrReadArticle(ctx, tasks);
+  var article = await zeekrReadArticle(ctx, tasks);
   var weekly = null;
   for (var i = 0; i < tasks.length; i++)
     if (tasks[i].name === ZEEKR_TASK_PRAISE) weekly = tasks[i];
   if (!forceLike && zeekrTaskDone(weekly)) {
     ctx.out("👍 每周点赞帖子: 本周已完成，跳过");
   } else {
-    await zeekrLikeSquarePost(ctx);
+    if (article && article.isFabulous === 0 && article.id && article.accountId) await zeekrLikePost(ctx, article);
+    else await zeekrLikeSquarePost(ctx);
   }
   return { tasks: tasks };
 }
@@ -670,7 +850,7 @@ async function zeekrGetUncollected(ctx) {
   });
   if (data.code !== "000000") {
     ctx.out("❌ 查询可领取奖品失败: " + (data.msg || JSON.stringify(data)));
-    return { debrisList: [], walkList: [], integralList: [], lotteryList: [] };
+    throw new Error("查询可领取奖品失败，无法确认是否还有奖励");
   }
   var items = (data.data && data.data.uncollectedVal) || [];
   var debrisList = [],
@@ -1122,7 +1302,22 @@ async function zeekrMain(RT) {
   var info = zeekrParseToken(cfg.token);
   ctx.accountId = info.accountId;
   ctx.loginDeviceId = info.deviceId;
+  ctx.sourcePlatform = info.sourcePlatform; // JWT issuer platform, not RT.platform (client runtime).
   ctx.deviceId = cfg.deviceId;
+  ctx.nativeDeviceId = info.deviceId;
+  // APP_SECRET alone never changes identity (particularly for WEB_PC JWTs).
+  ctx.nativeEnabled = !!(cfg.native && cfg.appSecret && info.sourcePlatform !== "WEB_PC" && info.deviceId && info.deviceId !== "0");
+  ctx.nativeRequests = ctx.nativeEnabled && cfg.nativeRequests;
+  ctx.appSecret = cfg.appSecret;
+  ctx.phoneModel = cfg.phoneModel;
+  ctx.iosVersion = cfg.iosVersion;
+  ctx.ua = cfg.ua;
+  ctx.pageContext = cfg.pageContext;
+  ctx.readWait = cfg.readWait;
+  // Shared ceiling for added page-context HTTP and READWAIT/DELAY only.
+  // Existing core requests/polling retain their explicit user-controlled limits.
+  ctx.optionalRemainingMs = RT.platform === "Quantumult X" ? 5000 :
+    /^(Node|青龙|Qinglong)$/i.test(RT.platform) ? 120000 : 15000;
 
   if (cfg.tokens.length > 1) {
     ctx.out("⚠️ 检测到 " + cfg.tokens.length + " 个 Token，本脚本只用第 1 个（多账号请用青龙版）");
@@ -1142,6 +1337,8 @@ async function zeekrMain(RT) {
       " | 客户端: " +
       RT.platform
   );
+  ctx.out("Token 来源: " + (RT.tokenSource || "env") +
+    " | 签发平台: " + (["WEB_PC", "IOS", "ANDROID"].indexOf(info.sourcePlatform) >= 0 ? info.sourcePlatform : "未知"));
   ctx.out(
     "Token 过期: " +
       (info.exp ? zeekrCSTDate(info.exp) : "未知") +
@@ -1149,7 +1346,7 @@ async function zeekrMain(RT) {
       info.daysLeft +
       " 天)"
   );
-  if (info.daysLeft <= 0) {
+  if (info.exp && info.exp <= Date.now()) {
     ctx.ok = false;
     title = "❌ 极氪签到失败（Token 过期）" + (cfg.tag ? "（" + cfg.tag + "）" : "");
     ctx.out("❌ Token 已过期，请重新抓包更新");
@@ -1177,6 +1374,8 @@ async function zeekrMain(RT) {
   }
   ctx.vlog("App 版本: v" + ctx.appVersion);
 
+  try {
+  await zeekrOptionalPause(ctx, cfg.delay);
   if (cfg.mode === "all" || cfg.mode === "sign") {
     var signOk = await zeekrSignIn(ctx);
     if (!signOk) {
@@ -1185,7 +1384,7 @@ async function zeekrMain(RT) {
       send();
       return { ok: false, lines: lines };
     }
-    var steps = zeekrResolveStepCounts(cfg.stepsRaw);
+    var steps = zeekrResolveStepCounts(cfg.stepsRaw, cfg.dailySteps ? zeekrDailyRng(ctx.accountId) : undefined);
     var stepOff = steps === 0;
     var pushSteps = async function () {
       await zeekrSleep(zeekrRand(1200, 2200));
@@ -1256,4 +1455,12 @@ async function zeekrMain(RT) {
   }
   send();
   return { ok: ctx.ok, lines: lines, result: res };
+  } catch (err) {
+    ctx.ok = false;
+    title = err && err.zeekrAuth ? "❌ 极氪签到失败（认证失败）" : "❌ 极氪签到失败";
+    if (cfg.tag) title += "（" + cfg.tag + "）";
+    ctx.out("⛔ " + ((err && err.message) || "执行异常"));
+    send();
+    return { ok: false, lines: lines, authDead: !!ctx.authDead };
+  }
 }

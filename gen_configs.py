@@ -239,11 +239,9 @@ egern = f"""# ══════════════════════
 # 注意：Egern 的模块文件需要 name/description 这类元数据；YAML 里正则必须用
 # **单引号**（双引号里 \\d 是非法转义，会直接报「发生错误」——之前就是这个报错）。
 #
-# Token：默认走「打开极氪 App 自动抓取」（第一个 http_request 规则，需开 MITM）；
-#        抓到的 Token 存在客户端持久化存储（键 zeekr_val），定时任务自动读。
-#        模块设置页里**刻意没有 Token 栏** —— Egern 不许脚本回写设置页，抓到的东西
-#        进不了那个输入框，放一个填不进去的框只会让人误会（2026-09-20 用户要求删掉）。
-#        本脚本**不读** env 里的 TOKEN（别人在 Profile 里塞了也一律忽略）：Token 唯一来源就是抓取。
+# Token：支持网页登录取得的 WEB_PC Token，或 App 抓取 Token；自动按 JWT 区分。
+#        模块设置的「手动 Token」填有效值时优先；留空/占位符则读取抓取存储。
+#        设置页不会被脚本回写；手动填写不是抓取结果的显示栏。
 #
 # 抓取开关：模块设置里的「抓取 Token」——
 #        开（默认）= 打开极氪 App 就抓取并存起来，Token 变了立刻弹一条通知，
@@ -263,6 +261,14 @@ homepage: "https://github.com/m20104600/zeekr-checkin"
 icon: "car.fill"
 
 env_schema:
+  ZEEKR_TOKEN:
+    name: "手动 Token（可选）"
+    description: "粘贴网页登录取得的 WEB_PC Token 或 App Token；留空则读取抓取存储。不会自动回写此栏。"
+    default_value: ""
+  ZEEKR_DEVICE_ID:
+    name: "请求设备 ID（可选）"
+    description: "显式设置优先于存储；网页 Token 的设备 ID 0 会保留，通常留空即可。"
+    default_value: ""
   ZEEKR_CAPTURE:
     name: "抓取 Token"
     description: "开 = 打开极氪 App 就抓取 Token 并存进持久化存储（抓到会弹一条通知）；关 = 不抓取、不写存储、不弹任何通知"
@@ -357,46 +363,8 @@ scriptings:
 """
 
 # ─────────────────────────────── 青龙 ───────────────────────────────
-ql = HEADER.format(client="青龙 / 任意 Node.js") + f"""
-# 零、怎么拿 Token（青龙没有 MITM，抓不了 —— 用手机抓完复制过来）
-#   1) 手机上装 QX / Loon / Stash / Egern 任一个，按 configs/ 里对应文件配好「抓取规则」，
-#      开启 MITM（HTTPS 解密）并信任 CA 证书；
-#   2) 打开极氪 App 随便点一下（进「我的」即可）；
-#   3) 手机会弹通知「✅ 极氪 Token 已自动保存」，正文最后有一整行 {BEARER} eyJ...；
-#   4) 长按复制那一行 -> 粘贴到青龙环境变量 {K}（或把整段 JSON 粘到 zeekr_val）；
-#   5) 平时可以关掉 MITM。Token 大约半年有效，过期后再抓一次即可。
-#   （也可以自己抓包：过滤域名 api-gw-toc.zeekrlife.com，复制请求头 Authorization 的值。）
-#
-# 一、放脚本
-#   方式 A：青龙「脚本管理」→ 新建脚本，粘贴 dist/zeekr.qinglong.js 的内容；
-#   方式 B：把 zeekr.qinglong.js 放进 /ql/scripts/；
-#   方式 C：青龙「订阅管理」→ 新建订阅，链接指向存放该文件的仓库，
-#           白名单填 zeekr.qinglong.js（定时任务里的脚本名要对应）。
-
-# 二、环境变量（青龙「环境变量」页新增）
-{K} = {PH}          # 必填；多账号用换行分隔，或用 {K}_1 / {K}_2 ...
-ZEEKR_MODE   = all            # all(默认) | sign | claim（补领任务用 claim）
-#   兼容写法：不配 {K} 而配 zeekr_val / ZEEKR_VAL
-#   （值是含 authorization 字段的 JSON，与手机端抓出来的格式一致），脚本会自动认。
-ZEEKR_TAG    = 凌晨场          # 只影响通知标题
-ZEEKR_STEPS  = 10000-20000    # 范围内随机；固定整数或 off 也支持
-ZEEKR_APPVER = 4.9.33         # 可选，跳过 iTunes 版本查询
-ZEEKR_POLL   = 0              # 1 = 脚本内轮询到领完（任务超时要 ≥ 420 秒）
-ZEEKR_NOTIFY = 1              # 0 关闭通知
-# 通知：默认走青龙自带 sendNotify.js（在「通知设置」里配好渠道）；
-#       找不到时可用 ZEEKR_TG_BOT_TOKEN + ZEEKR_TG_CHAT_ID 走 Telegram。
-
-# 三、定时任务（「定时任务」页新建，命令都是 task zeekr.qinglong.js）
-#   任务名               定时规则      说明
-#   极氪签到·凌晨场       1 0 * * *     全流程
-#   极氪签到·凌晨补领     10 0 * * *    只领取（补延迟入账的奖励）
-#   极氪签到·早间场       10 8 * * *
-#   极氪签到·早间补领     20 8 * * *
-#   极氪签到·晚间场       30 21 * * *
-#   极氪签到·晚间补领     40 21 * * *
-#   MODE 用「任务级环境变量」覆盖（青龙支持在定时任务编辑页给单条任务加环境变量）；
-#   懒人做法：只建 3 条「全流程」+ ZEEKR_POLL=1 + 任务超时 600 秒，一次跑完。
-"""
+# Keep Qinglong's beginner guide separate from phone-client configuration syntax.
+ql = (ROOT / "tpl" / "qinglong-readme.md").read_text(encoding="utf-8")
 
 FILES = {
     "qx.conf": qx,

@@ -2,12 +2,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const {pathToFileURL} = require('node:url');
 (async () => {
   const source = fs.readFileSync(path.join(__dirname, '../parts/core.js'), 'utf8');
   const ctx = {}; vm.createContext(ctx); vm.runInContext(source, ctx);
-  const local = await import(pathToFileURL('/root/.hermes/skills/zeekr-auto-checkin/scripts/checkin.mjs'));
-  for (const [name, resolve] of [['core', ctx.zeekrResolveStepCounts], ['local', local.resolveStepCounts]]) {
+  for (const [name, resolve] of [['core', ctx.zeekrResolveStepCounts]]) {
     assert.equal(typeof resolve, 'function', name + ': step resolver must exist');
     const bounds = [];
     assert.equal(resolve('', (lo, hi) => { bounds.push([lo, hi]); return lo; }), 10000);

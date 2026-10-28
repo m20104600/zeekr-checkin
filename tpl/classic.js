@@ -305,13 +305,6 @@ var ZEEKR_DEFAULT_CONFIG = {
     } catch (e2) {}
     return false;
   }
-  function hasTokenInEnv() {
-    for (var k in env) {
-      if (!Object.prototype.hasOwnProperty.call(env, k)) continue;
-      if (zeekrNormKey(k) === "TOKEN" && String(env[k]).trim()) return true;
-    }
-    return false;
-  }
   /** 读一个布尔型参数（大小写不敏感、前缀 ZEEKR_ 可有可无） */
   function envFlag(name, def) {
     for (var k in env) {
@@ -360,11 +353,13 @@ var ZEEKR_DEFAULT_CONFIG = {
     if (auth && /^Bearer\s/i.test(String(auth))) {
       var prev = zeekrTokenFromStore(storeRead());
       var back = prev;
-      if (prev !== auth) {
+      var capturedDevice = lower["device_id"] == null ? "" : String(lower["device_id"]);
+      var oldDevice = zeekrDeviceIdFromStore(storeRead());
+      if (prev !== auth || (capturedDevice && capturedDevice !== oldDevice)) {
         storeWrite(
           JSON.stringify({
             authorization: auth,
-            device_id: lower["device_id"] || "",
+            device_id: capturedDevice || (prev === auth ? oldDevice : ""),
             ts: Date.now(),
           })
         );
@@ -400,7 +395,7 @@ var ZEEKR_DEFAULT_CONFIG = {
         if (showTokFlag) {
           body +=
             "\n\n青龙等无法自动抓取的平台，把这行复制过去当 Token：\n" + auth;
-          log("[极氪签到] 🔐 可复制给青龙的 Token: " + auth);
+          // Full credentials stay in configured capture notifications only, never logs.
         }
         notify("✅ 极氪 Token 已自动保存", body);
       }
@@ -411,23 +406,14 @@ var ZEEKR_DEFAULT_CONFIG = {
     return;
   }
 
-  if (!hasTokenInEnv()) {
-    var stored = zeekrTokenFromStore(storeRead());
-    if (stored) {
-      env.ZEEKR_TOKEN = stored;
-      env.ZEEKR_DEVICE_ID = zeekrDeviceIdFromStore(storeRead());
-      log("[极氪签到] 🔐 使用持久化存储里的 Token（抓取时间见通知/日志）");
-    } else {
-      log(
-        "[极氪签到] ⚠️ 既没有配置 Token，也没有抓取过；请先按 README 配好抓取规则（打开极氪 App 点一下即可）"
-      );
-    }
-  }
+  var tokenSource = zeekrSelectStoredConfig(env, storeRead());
+  if (tokenSource === "missing") log("[极氪签到] ⚠️ 缺少 Token：请显式配置 TOKEN/ZEEKR_TOKEN，或打开极氪 App 抓取");
 
   var RT = {
     platform: platform,
     tokenHint:
       "❌ 缺少 Token：请在客户端参数的 TOKEN/ZEEKR_TOKEN 里填 Bearer Token（或先打开极氪 App 抓一次）",
+    tokenSource: tokenSource,
     env: env,
     http: http,
     notify: notify,

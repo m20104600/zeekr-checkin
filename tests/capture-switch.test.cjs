@@ -9,10 +9,10 @@ const source = fs.readFileSync(path.join(root, 'tpl/classic.js'), 'utf8').replac
   fs.readFileSync(path.join(root, 'parts/core.js'), 'utf8') + '\nzeekrMain = function(rt) { onTask(rt); return Promise.resolve({ok:true}); };');
 // These intentionally fake strings are syntax fixtures, never verified credentials.
 const cached = JSON.stringify({ authorization: 'Bearer offline.cached.signature' });
-async function run(platform, capture, rewrite = true, extra = {}) {
+async function run(platform, capture, rewrite = true, extra = {}, options = {}) {
   const values = { ZEEKR_CAPDEBUG: '1', ...extra };
   if (capture !== undefined) values.ZEEKR_CAPTURE = capture;
-  const store = { zeekr_val: cached }, calls = { writes: 0, notifications: 0, tasks: 0, done: 0, http: 0 };
+  const store = { zeekr_val: cached, ...options.store }, calls = { writes: 0, notifications: 0, tasks: 0, done: 0, http: 0 };
   const transport = () => { calls.http++; throw new Error('Network forbidden in offline fixture'); };
   const box = {
     console: { log() {} }, onTask: rt => { calls.tasks++; assert.equal(rt.env.ZEEKR_TOKEN, 'Bearer offline.cached.signature'); },
@@ -21,7 +21,7 @@ async function run(platform, capture, rewrite = true, extra = {}) {
     $persistentStore: { read: k => store[k] || '', write: (v, k) => { store[k] = v; calls.writes++; return true; } },
     $prefs: { valueForKey: k => store[k] || '', setValueForKey: (v, k) => { store[k] = v; calls.writes++; return true; } },
   };
-  if (rewrite) box.$request = { method: 'GET', url: 'https://example.invalid/offline', headers: { Authorization: 'Bearer offline.fresh.signature' } };
+  if (rewrite) box.$request = { method: 'GET', url: 'https://example.invalid/offline', headers: { Authorization: options.auth || 'Bearer offline.fresh.signature' } };
   if (platform === 'qx') { box.$task = { fetch: transport }; box.$environment = { variables: values }; }
   else { box.$httpClient = { get: transport, post: transport }; box.$argument = platform === 'loon' ? values : Object.entries(values).map(([k,v]) => k + '=' + v).join('&'); }
   if (platform === 'loon') box.$loon = {};
@@ -39,7 +39,7 @@ test('Loon/QX/Surge off means no writes, no debug/capture notification, no HTTP 
 test('missing/true/placeholder capture setting keeps existing default ON; stale CAPON/CAPOFF ignored', async () => {
   for (const p of ['loon', 'qx', 'surge']) for (const value of [undefined, true, 'true', '${ZEEKR_CAPTURE}']) {
     const { calls } = await run(p, value, true, { CAPON: false, CAPOFF: true });
-    assert.equal(calls.writes, 1, p + ':' + value);
+    assert.equal(calls.writes, p === 'loon' ? 2 : 1, p + ':' + value);
     assert.equal(calls.tasks, 0);
     assert.equal(calls.http, 0);
     assert.equal(calls.done, 1);
@@ -73,4 +73,18 @@ test('generated configs wire independent native capture controls, never gate cro
   assert.ok(!read('qx-capture.conf').includes('[task_local]'));
   assert.match(read('surge-capture.sgmodule'), /type=http-request/);
   assert.ok(!read('surge-capture.sgmodule').includes('type=cron'));
+});
+
+test('Loon notifies for an unchanged saved Token when capture is enabled, batching requests for 60 seconds', async () => {
+  for (const age of [null, 0, 61000]) {
+    const state = age === null ? {} : { zeekr_loon_cap_notice_at: String(Date.now() - age) };
+    const { calls, store } = await run('loon', true, true, { ZEEKR_CAPDEBUG: '0' }, {
+      auth: 'Bearer offline.cached.signature', store: state,
+    });
+    assert.equal(calls.notifications, age === 0 ? 0 : 1, 'last notification age: ' + age);
+    assert.equal(store.zeekr_val, cached, 'must not rewrite or erase unchanged credential');
+    assert.equal(calls.http, 0);
+    assert.equal(calls.tasks, 0);
+    assert.equal(calls.done, 1);
+  }
 });

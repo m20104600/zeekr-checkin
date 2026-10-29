@@ -392,7 +392,23 @@ var ZEEKR_DEFAULT_CONFIG = {
           (stored ? "（已存 ✓）" : "（⚠️ 存储写入失败）") +
           (ruleName ? " 规则:" + ruleName : "")
       );
-      if (prev !== auth || capDebug) {
+      var captureNotice = prev !== auth || capDebug;
+      // Loon's capture switch must also confirm an already-saved Token.
+      // Batch repeated API hits without changing other clients' notification policy.
+      var captureNoticeAt = Date.now();
+      if (platform === "Loon" && !captureNotice) {
+        var previousNoticeAt = 0;
+        try {
+          previousNoticeAt = Number($persistentStore.read("zeekr_loon_cap_notice_at")) || 0;
+        } catch (e) {}
+        captureNotice = !previousNoticeAt || captureNoticeAt - previousNoticeAt >= 60000 || captureNoticeAt < previousNoticeAt;
+      }
+      if (captureNotice) {
+        if (platform === "Loon") {
+          try {
+            $persistentStore.write(String(captureNoticeAt), "zeekr_loon_cap_notice_at");
+          } catch (e) {}
+        }
         var body =
           tip +
           "\n" +

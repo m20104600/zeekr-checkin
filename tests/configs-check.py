@@ -66,7 +66,8 @@ print("\n== 2. 抓取正则必须能匹配目标 URL ==")
 regexes = {}
 
 # QX： [rewrite_local] 里非注释行的第一个字段就是正则
-for line in read("qx.conf").split("\n"):
+qx_source = read("qx-capture.conf") if "configs/qx-capture.conf" in read("qx.conf") else read("qx.conf")
+for line in qx_source.split("\n"):
     s = line.strip()
     if s and not s.startswith("#") and "script-request-header" in s and "url" in s:
         regexes.setdefault("qx.conf", []).append(s.split(" ")[0])

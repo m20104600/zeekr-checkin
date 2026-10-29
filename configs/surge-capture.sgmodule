@@ -1,0 +1,7 @@
+#!name=极氪Token抓取
+#!desc=仅用于捕获本人 Token。抓取成功后关闭本模块即可，已保存 Token 和现有签到定时不受影响。
+# 不包含签到定时。请保留已有签到任务，不要同时保留旧的同域名抓取脚本。
+[Script]
+极氪抓Token = type=http-request,pattern=^https://api-gw-toc\.zeekrlife\.com/,script-path=https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/dist/zeekr.js,argument=ZEEKR_CAPTURE=true,timeout=20
+[MITM]
+hostname = %APPEND% api-gw-toc.zeekrlife.com

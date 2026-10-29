@@ -50,6 +50,29 @@ JWT 解码不等于签名验证；声明的到期时间不保证服务器不会�
 
 ---
 
+## 抓取 Token 开关（Loon / QX / Surge）
+
+关闭抓取只停止新 Token 的捕获、存储写入及抓取/调试通知，**不删除已保存 Token，不影响已有签到定时**。需要更新 Token 时重新打开。首次抓取仍需 HTTPS 解密和受信任的 CA。
+
+- **Loon**：刷新/重新导入最新 `configs/loon.plugin`，在插件参数里切换「抓取 Token」（默认开启）；只控制请求/响应抓取规则，六条 cron 不绑定此开关。保存后重新加载配置，必要时重连 VPN。
+- **QX**：采用独立的「极氪Token抓取」重写资源，在重写资源列表开/关该资源。`configs/qx.conf` 已改为引用它，六条签到仍在 `task_local`。旧版的本地抓取行必须先移除或注释，**不能只关闭新资源、却保留旧抓取规则**。不要关闭所有重写或整个任务系统。
+- **Surge**：添加下面的独立抓取模块，成功后关闭**这个抓取模块**即可；模块不包含签到定时，保留已有签到任务。旧的同域名抓取脚本先停用，避免重复。无需假设 Surge 有与 Loon 相同的自定义开关界面。
+
+Loon 插件：
+```
+https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/configs/loon.plugin
+```
+QX 独立重写资源（仅抓取）：
+```
+https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/configs/qx-capture.conf
+```
+Surge 独立模块（仅抓取）：
+```
+https://raw.githubusercontent.com/m20104600/zeekr-checkin/main/configs/surge-capture.sgmodule
+```
+
+手动编辑配置时，共用脚本也支持 `ZEEKR_CAPTURE=false`；Loon/Surge 通过抓取脚本的 `argument` 传入，QX 通过抓取 URL 的 `#ZEEKR_CAPTURE=false` 传入。仅对抓取上下文生效。没有配置或占位符未展开时默认开启，不复用历史 `CAPON/CAPOFF` 残值。
+
 ## 快速开始
 
 ### 1. 配客户端
@@ -307,6 +330,8 @@ python3 tests/configs-check.py  # 需 PyYAML
 ---
 
 ## 更新记录
+
+- **2026-10-29（UTC+8）· v3.3.1**：仅补通用脚本的 Token 抓取控制：Loon 插件新增默认开启的「抓取 Token」开关；QX 改用独立可开关的抓取重写资源；Surge 提供独立可开关的抓取模块。关闭时不抓取、不写存储、不弹抓取/调试通知，不清空原 Token、不影响签到定时。升级需更新相应插件/重写配置并移除旧的重复抓取规则。签到核心仍为 v3.3.0；Egern、青龙、六场时间、MPv3 与本机定时不变。
 
 - **2026-10-28（UTC+8）· v3.3.0**：将 `zeekr-checkin-new` 已验证版本合回原项目（来源提交 `98b1a82`），统一恢复本仓库脚本/配置/订阅地址。增加 WEB_PC Token 支持、Egern 手动 Token 与抓取存储分流、设备参数优先级与长账号 ID 保护、按需吸收 PR #5 的请求分层/鉴权熔断改进、青龙账号昵称及一个订阅自动六条可编辑任务。默认仍为每轮随机 10000–20000 步，保留手机六场及 Loon 超时修复。维护者已反馈青龙、Egern 使用成功，不据此宣称其他客户端或所有版本均验收。手机端需刷新/重新导入本仓库配置；青龙迁移前禁用实验仓库旧订阅及旧任务，保留凭据，避免重复执行。取 Token 工具仍独立自部署，不公开私人入口；MPv3 和本机 timer 不变。感谢 PR #5、Issue #6/#7 的贡献者；相关讨论仅回复，暂不关闭。
 

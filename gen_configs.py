@@ -69,9 +69,12 @@ qx = HEADER.format(client="Quantumult X") + f"""
 [mitm]
 hostname = api-gw-toc.zeekrlife.com
 
+[rewrite_remote]
+# 只包含 Token 抓取：在 QX 重写资源列表单独开/关，不影响 task_local 定时
+{REPO.replace('/dist', '')}/configs/qx-capture.conf, tag=极氪Token抓取, enabled=true
+
 [rewrite_local]
-# 自动抓 Token：默认匹配整个 api-gw-toc 域名（App 任何一条请求都会带上 Authorization）
-{RE_QX_BROAD} url script-request-header {REPO}/zeekr.js
+# 以下为旧式本地抓取示例，默认全部注释；不要与独立抓取资源同时启用
 # 只想匹配「用户信息」那个接口（开销更小，但新版 App 不一定发这个请求）：
 # {RE_QX} url script-request-header {REPO}/zeekr.js
 # 若请求阶段不触发，用参考脚本（wf021325/qx）的「响应阶段」写法兜底（整域名）：
@@ -97,6 +100,24 @@ hostname = api-gw-toc.zeekrlife.com
 # * 抓取规则只在「打开极氪 App」时生效；平时可以关掉 MITM，不影响定时任务。
 """
 
+# Dedicated native-switch resources: no cron jobs here, so disabling only
+# capture cannot disable scheduled check-ins. QX format follows its official
+# sample-import-rewrite.snippet; Surge format follows its HTTP request module.
+qx_capture = f"""# 极氪 Token 抓取（仅抓取，无签到定时）
+# 在 QX 重写资源列表启用/停用此资源；旧本地抓取行需移除或注释，避免重复。
+hostname = api-gw-toc.zeekrlife.com
+{RE_QX_BROAD} url script-request-header {REPO}/zeekr.js#ZEEKR_CAPTURE=true
+"""
+
+surge_capture = f"""#!name=极氪Token抓取
+#!desc=仅用于捕获本人 Token。抓取成功后关闭本模块即可，已保存 Token 和现有签到定时不受影响。
+# 不包含签到定时。请保留已有签到任务，不要同时保留旧的同域名抓取脚本。
+[Script]
+极氪抓Token = type=http-request,pattern={RE_STASH_BROAD},script-path={REPO}/zeekr.js,argument=ZEEKR_CAPTURE=true,timeout=20
+[MITM]
+hostname = %APPEND% api-gw-toc.zeekrlife.com
+"""
+
 # ─────────────────────────────── Loon ───────────────────────────────
 loon_plugin = f"""#!name = 极氪签到
 #!desc = 极氪 App 每日自动签到：签到 / 上报步数 / 阅读文章 / 每周点赞 / 领取碎片·能量球·极值
@@ -109,19 +130,20 @@ loon_plugin = f"""#!name = 极氪签到
 """ + HEADER.format(client="Loon 插件 —— 添加方式：Loon → 配置 → 插件 → + → 粘贴本文件 URL") + f"""
 
 [Argument]
+ZEEKR_CAPTURE = switch,true,type=boolean,tag=抓取 Token,desc=开=抓取并保存；关=不抓取不通知，已保存 Token 和签到定时不受影响
 TOKEN = input,"",tag=极氪 Token,desc=可留空：开着 MITM 打开一次极氪 App 就会自动抓取
 TAG = input,"凌晨场",tag=场次标签,desc=只用于通知标题
 
 [Script]
 # ① 自动抓 Token（打开极氪 App 时触发，抓到就存进 Loon；通知里会带完整 Token）
 #    默认匹配整个 api-gw-toc 域名，最稳；只想匹配「用户信息」接口就把下面那行换成窄版
-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
+request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js", {{${{ZEEKR_CAPTURE}}}}) with enable=${{ZEEKR_CAPTURE}}, tag="极氪抓Token", timeout=20
 # 窄版（开销更小；新版 App 不一定发这个请求）：
-# request if ${{url}} ~= {RE_LOON} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
+# request if ${{url}} ~= {RE_LOON} then script("{REPO}/zeekr.js", {{${{ZEEKR_CAPTURE}}}}) with enable=${{ZEEKR_CAPTURE}}, tag="极氪抓Token", timeout=20
 # 若请求阶段不触发，用「响应阶段」兜底（参考脚本 wf021325/qx 用的就是响应阶段；整域名）
-# response if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token(响应阶段兜底)", timeout=20
+# response if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js", {{${{ZEEKR_CAPTURE}}}}) with enable=${{ZEEKR_CAPTURE}}, tag="极氪抓Token(响应阶段兜底)", timeout=20
 # 调试：临时把抓取那行换成这行（每条命中的请求都会弹通知，证明规则生效了）
-# request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js", "CAPDEBUG=1") with tag="极氪抓Token(调试)", timeout=20
+# request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js", "CAPDEBUG=1") with enable=${{ZEEKR_CAPTURE}}, tag="极氪抓Token(调试)", timeout=20
 
 # ② 三场定时（快跑，单次约 10~25 秒）+ 每场 10 分钟后的「只领取」补领
 cron "1 0 * * *" then script("{REPO}/zeekr.js", {{${{TOKEN}}, ${{TAG}}}}) with tag="极氪签到·凌晨场", timeout=60
@@ -148,8 +170,8 @@ hostname = api-gw-toc.zeekrlife.com
 
 loon_snippet = HEADER.format(client="Loon 配置片段（想合并进自己的 .conf 时用；手机上装插件请用 loon.plugin）") + f"""
 [Script]
-# 自动抓 Token（默认整域名；调试时加 "CAPDEBUG=1" 参数会为每条命中请求弹通知）
-request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js") with tag="极氪抓Token", timeout=20
+# 自动抓 Token：ZEEKR_CAPTURE=false 关闭；需要可点击开关请使用 loon.plugin
+request if ${{url}} ~= {RE_LOON_BROAD} then script("{REPO}/zeekr.js", "ZEEKR_CAPTURE=true") with tag="极氪抓Token", timeout=20
 # 三场 + 补领（argument 直接写字面串）
 cron "1 0 * * *" then script("{REPO}/zeekr.js", "{K}={PH}&TAG=凌晨场") with tag="极氪签到·凌晨场", timeout=60
 cron "10 0 * * *" then script("{REPO}/zeekr.js", "MODE=claim&TAG=凌晨场·补领") with tag="极氪签到·凌晨补领", timeout=60
@@ -368,6 +390,8 @@ ql = (ROOT / "tpl" / "qinglong-readme.md").read_text(encoding="utf-8")
 
 FILES = {
     "qx.conf": qx,
+    "qx-capture.conf": qx_capture,
+    "surge-capture.sgmodule": surge_capture,
     "loon.plugin": loon_plugin,
     "loon-snippet.conf": loon_snippet,
     "stash.yaml": stash,

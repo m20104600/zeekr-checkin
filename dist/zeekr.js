@@ -1794,6 +1794,12 @@ async function zeekrMain(RT) {
     : !scriptType && typeof $request !== "undefined" && !!$request && !!$request.headers;
 
   if (inRewrite) {
+    // Capture control only: never erase saved credentials or gate scheduled tasks.
+    if (!envFlag("CAPTURE", true)) {
+      log("[极氪签到] 抓取 Token：关（v3.3.1）；保留已保存凭据与签到定时");
+      finish();
+      return;
+    }
     var rawHeaders = ($request && $request.headers) || {};
     var lower = {};
     for (var hk in rawHeaders) {

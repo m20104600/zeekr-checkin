@@ -32,7 +32,7 @@ TARGETS = [
 ]
 
 # Stable paths are Qinglong task identities: do not rename during routine updates.
-QL_ADAPTER_VERSION = "3.3.0"
+QL_ADAPTER_VERSION = "3.3.3"
 QL_SLOTS = [
     ("zeekr_0001_all.js", "1 0 * * *", "all", "凌晨场", "极氪签到·凌晨场"),
     ("zeekr_0010_claim.js", "10 0 * * *", "claim", "凌晨场·补领", "极氪签到·凌晨补领"),

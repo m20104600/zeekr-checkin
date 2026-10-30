@@ -68,6 +68,7 @@ function zeekrQLHttp(o) {
         headers: o.headers,
         body: o.body === null || o.body === undefined ? undefined : o.body,
         signal: ctrl ? ctrl.signal : undefined,
+        redirect: o.noRedirect ? "error" : "follow",
       })
         .then(function (r) {
           return r.text().then(function (txt) {
@@ -248,6 +249,28 @@ function zeekrQLIdentity(raw) {
   }
 }
 
+/** Optional privacy-preserving per-account result reporting. Never send tokens or raw logs. */
+async function zeekrQLReport(accountId, result) {
+  var url = process.env.ZEEKR_REPORT_URL || "";
+  var key = process.env.ZEEKR_REPORT_KEY || "";
+  if (!url || !key || !/^\d{1,30}$/.test(accountId)) return;
+  try {
+    var dest = new URL(url);
+    if (dest.protocol !== "https:" || dest.username || dest.password || dest.search || dest.hash || dest.pathname !== "/api/report") return;
+    var rawTag = String(ZEEKR_QL_SCHEDULE ? ZEEKR_QL_SCHEDULE.tag : (process.env.ZEEKR_TAG || ""));
+    var tagMap = {"凌晨场":"凌晨场", "早间场":"早间场", "晚间场":"晚间场", "凌晨场·补领":"凌晨补领", "早间场·补领":"早间补领", "晚间场·补领":"晚间补领"};
+    var tag = tagMap[rawTag] || "其他";
+    var outcome = !result || result.ok !== true ? "error" : (result.result && Array.isArray(result.result.failed) && result.result.failed.length ? "partial" : "ok");
+    var details = result && result.result;
+    var number = function (value) { return Number.isSafeInteger(value) && value >= 0 && value < 1000000; };
+    var summary = details && number(details.debrisCount) && number(details.walkVal) ? "碎片 " + details.debrisCount + "，能量 " + details.walkVal + "，未领 " + (Array.isArray(details.failed) ? Math.min(details.failed.length, 9999) : 0) : (outcome === "error" ? "执行失败" : "结果不完整");
+    var response = await zeekrQLHttp({method: "POST", url: dest.href, noRedirect: true, headers: {"Content-Type": "application/json", "X-Report-Key": key}, body: JSON.stringify({account: accountId, tag: tag, state: outcome, summary: summary}), timeoutMs: 3000});
+    if (response.status < 200 || response.status >= 300) throw new Error("report rejected");
+  } catch (e) {
+    console.log("[极氪签到] ⚠️ 个人记录同步失败（不影响签到）");
+  }
+}
+
 /** 复制全局 ZEEKR_* 环境变量（每个账号一份，互不干扰） */
 function zeekrQLBaseEnv() {
   var env = {};
@@ -324,6 +347,7 @@ function zeekrQLBaseEnv() {
     }
     if (r && r.ok === false) fails++;
     var identity = zeekrQLIdentity(account.raw);
+    await zeekrQLReport(identity.accountId, r);
     // Explicit suffix matches TOKEN_n / VAL_n; unindexed input uses run position.
     // Then the JSON array (run order), then JWT nickname / userName.
     var nickname = zeekrQLDisplayText(process.env["ZEEKR_NICKNAME_" + (account.index || (i + 1))]) ||

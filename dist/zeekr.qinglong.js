@@ -1729,8 +1729,18 @@ async function zeekrQLReport(accountId, result) {
     var details = result && result.result;
     var number = function (value) { return Number.isSafeInteger(value) && value >= 0 && value < 1000000; };
     var summary = details && number(details.debrisCount) && number(details.walkVal) ? "碎片 " + details.debrisCount + "，能量 " + details.walkVal + "，未领 " + (Array.isArray(details.failed) ? Math.min(details.failed.length, 9999) : 0) : (outcome === "error" ? "执行失败" : "结果不完整");
-    var response = await zeekrQLHttp({method: "POST", url: dest.href, noRedirect: true, headers: {"Content-Type": "application/json", "X-Report-Key": key}, body: JSON.stringify({account: accountId, tag: tag, state: outcome, summary: summary}), timeoutMs: 3000});
-    if (response.status < 200 || response.status >= 300) throw new Error("report rejected");
+    var detail = [], total = 0;
+    var unsafe = /bearer|authorization|cookie|app[_-]?secret|report[_-]?key|https?:\/\/|[a-z0-9_-]{80,}|(?:[a-z0-9_-]{8,}\.){2}|[\x00-\x1f]/i;
+    if (result && Array.isArray(result.lines)) {
+      for (var i=0; i<result.lines.length && detail.length<60; i++) {
+        var line=result.lines[i];
+        if (typeof line!=="string" || line.indexOf("[极氪签到] ")!==0 || line.length>500 || unsafe.test(line)) continue;
+        if (total+line.length>9000) break;
+        detail.push(line); total+=line.length;
+      }
+    }
+    var response = await zeekrQLHttp({method: "POST", url: dest.href, noRedirect: true, headers: {"Content-Type": "application/json", "X-Report-Key": key}, body: JSON.stringify({account: accountId, tag: tag, state: outcome, summary: summary, detail: detail}), timeoutMs: 3000});
+    if (response.status < 200 || response.status >= 300 || JSON.parse(response.body || "{}").ok !== true) throw new Error("report rejected");
   } catch (e) {
     console.log("[极氪签到] ⚠️ 个人记录同步失败（不影响签到）");
   }

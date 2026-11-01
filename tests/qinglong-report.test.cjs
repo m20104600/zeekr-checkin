@@ -12,11 +12,12 @@ test('report contains only bound account and structured numbers, and HTTPS only'
   const env={ZEEKR_REPORT_URL:'https://fixture.invalid/api/report',ZEEKR_REPORT_KEY:'offline-report-key'};
   const ctx=vm.createContext({process:{env},console:{log:x=>logs.push(x)},URL,Buffer,require:()=>{throw Error('no network')}});
   vm.runInContext(src.slice(0,split),ctx);
-  ctx.zeekrQLHttp=async options=>{sent.push(options);return {status:200}};
-  await ctx.zeekrQLReport('123456',{ok:true,result:{debrisCount:2,walkVal:5,failed:[]},lines:['secret raw token must not be sent']});
+  ctx.zeekrQLHttp=async options=>{sent.push(options);return {status:200,body:'{\"ok\":true}'}};
+  await ctx.zeekrQLReport('123456',{ok:true,result:{debrisCount:2,walkVal:5,failed:[]},lines:['[极氪签到] ✅ 签到成功','[极氪签到] 🚶 步数上报成功: 12345 步','[极氪签到] Bearer abc.def.xyz','secret raw token must not be sent']});
   assert.equal(sent.length,1);assert.equal(sent[0].noRedirect,true);
   const body=JSON.parse(sent[0].body);
-  assert.deepEqual(body,{account:'123456',tag:'早间场',state:'ok',summary:'碎片 2，能量 5，未领 0'});
+  assert.deepEqual(body,{account:'123456',tag:'早间场',state:'ok',summary:'碎片 2，能量 5，未领 0',detail:['[极氪签到] ✅ 签到成功','[极氪签到] 🚶 步数上报成功: 12345 步']});
+  assert.ok(!sent[0].body.includes('Bearer'));
   assert.ok(!sent[0].body.includes('secret raw token'));
   env.ZEEKR_REPORT_URL='http://fixture.invalid/api/report';
   await ctx.zeekrQLReport('123456',{ok:true});assert.equal(sent.length,1);

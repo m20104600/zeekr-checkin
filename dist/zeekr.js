@@ -257,7 +257,7 @@ function zeekrResolveStepCounts(value, rng) {
     var fixed = Number(text);
     if (fixed > 0 && fixed <= 9007199254740991) return fixed;
   }
-  return pick(10000, 20000);
+  return pick(15000, 25000);
 }
 function zeekrRand(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;

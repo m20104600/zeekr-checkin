@@ -8,16 +8,16 @@ const vm = require('node:vm');
   for (const [name, resolve] of [['core', ctx.zeekrResolveStepCounts]]) {
     assert.equal(typeof resolve, 'function', name + ': step resolver must exist');
     const bounds = [];
-    assert.equal(resolve('', (lo, hi) => { bounds.push([lo, hi]); return lo; }), 10000);
-    assert.deepEqual(bounds, [[10000, 20000]]);
-    assert.equal(resolve('', (lo, hi) => hi), 20000);
+    assert.equal(resolve('', (lo, hi) => { bounds.push([lo, hi]); return lo; }), 15000);
+    assert.deepEqual(bounds, [[15000, 25000]]);
+    assert.equal(resolve('', (lo, hi) => hi), 25000);
     console.log('PASS default random bounds:', name);
     assert.equal(resolve(' 12000 - 18000 ', (lo, hi) => hi), 18000);
     assert.equal(resolve(' 12000 - 18000 ', (lo, hi) => lo), 12000);
     for (const value of ['15000', 15000]) assert.equal(resolve(value), 15000);
     for (const value of ['0', 0, 'off', 'NO', 'false']) assert.equal(resolve(value), 0);
     for (const value of ['random', 'bad', '20000-10000', '-2', '123abc', '10000-', '10000-9007199254740992']) {
-      assert.equal(resolve(value, (lo, hi) => hi), 20000, 'invalid/default: ' + value);
+      assert.equal(resolve(value, (lo, hi) => hi), 25000, 'invalid/default: ' + value);
     }
     const seen = new Set();
     for (let i=0; i<500; i++) {

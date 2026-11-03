@@ -22,7 +22,7 @@ cron: 10 0 * * *
  *      ZEEKR_MODE  = all                ← all | sign | claim（补领任务用 claim）
  *      ZEEKR_TAG   = 凌晨场              ← 只影响通知标题
  *      ZEEKR_POLL  = 0                  ← 1 = 脚本内轮询领光（需放宽任务超时）
- *      ZEEKR_STEPS = 10000-20000        ← 可选；默认每轮随机，off 跳过步数上报
+ *      ZEEKR_STEPS = 15000-25000        ← 可选；默认每轮随机，off 跳过步数上报
  *      ZEEKR_APPVER= 4.9.33             ← 可选，跳过 iTunes 版本查询
  *      ZEEKR_NOTIFY= 0                  ← 可选，关闭通知
  *      ZEEKR_NICKNAME_1 = 家用车        ← 可选，TOKEN_1 / VAL_1 对应的通知昵称
@@ -263,7 +263,7 @@ function zeekrResolveStepCounts(value, rng) {
     var fixed = Number(text);
     if (fixed > 0 && fixed <= 9007199254740991) return fixed;
   }
-  return pick(10000, 20000);
+  return pick(15000, 25000);
 }
 function zeekrRand(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;

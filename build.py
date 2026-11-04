@@ -31,8 +31,12 @@ TARGETS = [
     ("tpl/qinglong.js", "zeekr.qinglong.js"),
 ]
 
+# One version source for runtime notifications and Qinglong entrypoint headers.
+_version_match = re.search(r'^var ZEEKR_PORT_VERSION = "(\d+\.\d+\.\d+)";', CORE_FILE.read_text(encoding='utf-8'), re.MULTILINE)
+if not _version_match:
+    raise SystemExit('Missing or invalid ZEEKR_PORT_VERSION in parts/core.js')
+QL_ADAPTER_VERSION = _version_match.group(1)
 # Stable paths are Qinglong task identities: do not rename during routine updates.
-QL_ADAPTER_VERSION = "3.3.4"
 QL_SLOTS = [
     ("zeekr_0001_all.js", "1 0 * * *", "all", "凌晨场", "极氪签到·凌晨场"),
     ("zeekr_0010_claim.js", "10 0 * * *", "claim", "凌晨场·补领", "极氪签到·凌晨补领"),

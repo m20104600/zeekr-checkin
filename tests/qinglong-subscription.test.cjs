@@ -75,6 +75,15 @@ function officialRuntime(apiCall) {
   return context;
 }
 
+test('all generated scripts and subscription headers use the core version', () => {
+  const match=source('parts/core.js').match(/var ZEEKR_PORT_VERSION = "(\d+\.\d+\.\d+)";/);
+  assert.ok(match);const version=match[1];
+  for (const file of ['dist/zeekr.js','dist/zeekr.egern.js','dist/zeekr.qinglong.js',...SLOTS.map(([name])=>'qinglong/'+name)]) {
+    const text=source(file);assert.ok(text.includes('var ZEEKR_PORT_VERSION = "'+version+'";'),file);
+    if (file.startsWith('qinglong/')) assert.ok(text.includes('青龙订阅适配 v'+version+'；'),file);
+  }
+});
+
 test('exactly six stable self-contained Qinglong subscription entrypoints', () => {
   const dir = path.join(ROOT, 'qinglong');
   const actual = fs.existsSync(dir) ? fs.readdirSync(dir).filter(n => n.endsWith('.js')).sort() : [];

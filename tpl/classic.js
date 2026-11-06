@@ -16,6 +16,7 @@
  *      不想在通知里显示 Token：CAPSHOW=0（仍会存起来，定时任务照常用）。
  * 3) 参数：MODE=all|sign|claim  POLL=0|1  WAITS=45,60,75  SETTLE=180  MAX=600
  *          STEPS=10000|off    TAG=凌晨场    LIKE=1    NOTIFY=0    CAPSHOW=0    VERBOSE=1
+ *          WALKTHRESHOLD=2000  减碳能量球门槛(g)：未达不领，达到则贪心最小溢出收取；0=全领
  *          前缀 ZEEKR_ 可有可无，大小写不敏感
  *
  * ── 为什么默认「只查一轮」────────────────────────────────────────────

@@ -17,6 +17,9 @@
  *      ZEEKR_POLL  = 0                  ← 1 = 脚本内轮询领光（需放宽任务超时）
  *      ZEEKR_STEPS = 15000-25000        ← 可选；默认每轮随机，off 跳过步数上报
  *      ZEEKR_APPVER= 4.9.33             ← 可选，跳过 iTunes 版本查询
+ *      ZEEKR_WALK_THRESHOLD = 2000      ← 可选；减碳能量球门槛(g)：可领球总和未达此值不领，
+ *                                          达到则按子集和 DP 选最小溢出的子集领取。默认 2000；
+ *                                          0/off = 关闭，退回「全部领取」。
  *      ZEEKR_NOTIFY= 0                  ← 可选，关闭通知
  *      ZEEKR_NICKNAME_1 = 家用车        ← 可选，TOKEN_1 / VAL_1 对应的通知昵称
  *      ZEEKR_NICKNAMES = ["家用车","通勤"] ← 可选，JSON 数组按账号执行顺序匹配

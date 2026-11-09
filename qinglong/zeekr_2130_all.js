@@ -2,7 +2,7 @@
 new Env("极氪签到·晚间场");
 cron: 30 21 * * *
 30 21 * * * zeekr_2130_all.js
-青龙订阅适配 v3.3.4；默认时区 UTC+8。
+青龙订阅适配 v3.3.5；默认时区 UTC+8。
 生成文件，请勿直接修改；时间在青龙定时任务中编辑。
 */
 /**
@@ -50,7 +50,7 @@ var ZEEKR_QL_SCHEDULE = {"mode": "all", "tag": "晚间场"};
  * 依赖注入：RT = { platform, env, http(), notify(), log(), finish() }
  * ========================================================================== */
 
-var ZEEKR_PORT_VERSION = "3.3.4";
+var ZEEKR_PORT_VERSION = "3.3.5";
 /* 签名密钥由 build.py 从本地 checkin.mjs 抽取后注入（避免密钥出现在源码/终端里被安全屏蔽器打码） */
 var ZEEKR_SECRET = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCz09z6e9WOcNq+nUMX8Vq1Xe2EmJxuR3XbturefioF)E(Fl";
 var ZEEKR_BASE = "https://api-gw-toc.zeekrlife.com";
@@ -1610,6 +1610,7 @@ async function zeekrQLNotify(title, body) {
     "./sendNotify.js",
     "../sendNotify.js"
   );
+  var attempted = [];
   for (var i = 0; i < cands.length; i++) {
     var mod = null;
     try {
@@ -1621,34 +1622,37 @@ async function zeekrQLNotify(title, body) {
     if (typeof mod === "function") fn = mod;
     else if (mod && typeof mod.sendNotify === "function") fn = mod.sendNotify;
     else if (mod && typeof mod.default === "function") fn = mod.default;
-    if (!fn) continue;
+    if (!fn || attempted.indexOf(fn) >= 0) continue;
+    attempted.push(fn);
     try {
       var r = fn(title, body);
       if (r && typeof r.then === "function") await r;
       console.log("[极氪签到] 🔔 通知已通过 sendNotify 发送");
       return true;
     } catch (e2) {
-      console.log("[极氪签到] ⚠️ sendNotify 发送失败: " + (e2 && e2.message));
+      var failureCode = e2 && typeof e2.code === "string" && /^[A-Z0-9_]{1,40}$/.test(e2.code) ? " (" + e2.code + ")" : "";
+      console.log("[极氪签到] ⚠️ sendNotify 调用失败" + failureCode);
     }
   }
   var tk = process.env.ZEEKR_TG_BOT_TOKEN || process.env.TG_BOT_TOKEN || "";
   var cid = process.env.ZEEKR_TG_CHAT_ID || process.env.TG_CHAT_ID || "";
   if (tk && cid) {
     try {
-      await zeekrQLHttp({
+      var tgResponse = await zeekrQLHttp({
         method: "POST",
         url: "https://api.telegram.org/bot" + tk + "/sendMessage",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chat_id: cid, text: title + "\n\n" + body }),
         timeoutMs: 15000,
       });
+      if (tgResponse.status < 200 || tgResponse.status >= 300 || JSON.parse(tgResponse.body || "{}").ok !== true) throw new Error("Telegram rejected");
       console.log("[极氪签到] 🔔 通知已通过 Telegram 发送");
       return true;
     } catch (e3) {
-      console.log("[极氪签到] ⚠️ Telegram 通知失败: " + (e3 && e3.message));
+      console.log("[极氪签到] ⚠️ Telegram 通知失败，请检查网络与配置");
     }
   }
-  console.log("[极氪签到] ⚠️ 没找到可用的通知渠道（sendNotify.js / Telegram），仅打印日志");
+  console.log(attempted.length || (tk && cid) ? "[极氪签到] ⚠️ 通知渠道调用失败，结果仅保存在日志" : "[极氪签到] ⚠️ 没有配置可用通知渠道，结果仅保存在日志");
   return false;
 }
 
@@ -1753,6 +1757,56 @@ async function zeekrQLReport(accountId, result) {
   }
 }
 
+// Compact only the Qinglong notification; original account lines remain in logs/reporting.
+function zeekrQLCompact(result) {
+  var lines = result && Array.isArray(result.lines) ? result.lines : [];
+  var out = [], warnings = [], pending = [];
+  for (var i = 0; i < lines.length; i++) {
+    var line = String(lines[i]).replace(/^\[极氪签到\]\s*/, "");
+    if (/^✅ 签到成功/.test(line)) out.push(line);
+    else if (/^🔥 连续签到/.test(line)) out.push(line);
+    else if (/^🚶 步数上报成功/.test(line)) out.push(line.replace("步数上报成功:", "步数:"));
+    else if (/^📋 任务:/.test(line)) {
+      var re = /⏳\s*([^✅⏳]+)/g, match;
+      while ((match = re.exec(line))) pending.push(match[1].trim());
+    } else if (/^[⚠❌⛔]/u.test(line)) {
+      if (/bearer\s+\S+|authorization\s*[:=]|cookie\s*[:=]|https?:\/\/|[a-z0-9_-]{80,}|(?:[a-z0-9_-]{8,}\.){2}/i.test(line)) {
+        line = "⚠️ 异常信息已隐藏，请查看日志";
+      }
+      line = Array.from(line).slice(0, 180).join("");
+      if (warnings.indexOf(line) < 0) warnings.push(line);
+    }
+  }
+  var detail = result && result.result;
+  if (detail) {
+    var summary = "🎁 碎片 " + (detail.debrisCount || 0) + " · 能量 +" + (detail.walkVal || 0);
+    if (detail.lotteryCount) summary += " · 七日奖励 " + detail.lotteryCount;
+    if (detail.integralVal) summary += " · 极值 +" + detail.integralVal;
+    out.push(summary);
+    if (Array.isArray(detail.failed) && detail.failed.length && !warnings.some(function (w) { return /未领/.test(w); }))
+      warnings.push("⚠️ 未领净 " + detail.failed.length + " 项，请查看日志");
+  }
+  if (pending.length) out.push("📋 待完成：" + pending.join("、"));
+  if (result && result.ok === false && !warnings.length) warnings.push("❌ 执行失败，请查看日志");
+  if (warnings.length > 5) warnings = warnings.slice(0, 5).concat(["⚠️ 更多异常请查看日志"]);
+  return out.concat(warnings).join("\n") || "⚠️ 结果不完整，请查看日志";
+}
+
+// Limits are UTF-16 code units, with headroom for title and notifier formatting.
+function zeekrQLSplit(text, limit) {
+  var chunks = [], rest = String(text);
+  while (rest.length > limit) {
+    var separator = "\n──────────\n";
+    var boundary = rest.lastIndexOf(separator, limit - separator.length);
+    var cut = boundary > 0 ? boundary + separator.length : rest.lastIndexOf("\n", limit - 1);
+    if (boundary <= 0) { if (cut < Math.floor(limit / 2)) cut = limit; else cut++; }
+    if (cut > 0 && /[\uD800-\uDBFF]/.test(rest.charAt(cut - 1)) && /[\uDC00-\uDFFF]/.test(rest.charAt(cut))) cut--;
+    chunks.push(rest.slice(0, cut)); rest = rest.slice(cut);
+  }
+  if (rest || !chunks.length) chunks.push(rest);
+  return chunks;
+}
+
 /** 复制全局 ZEEKR_* 环境变量（每个账号一份，互不干扰） */
 function zeekrQLBaseEnv() {
   var env = {};
@@ -1836,7 +1890,7 @@ function zeekrQLBaseEnv() {
       zeekrQLDisplayText(nicknames[i]) || identity.nickname;
     var detail = [identity.accountId, nickname].filter(function (s) { return !!s; }).join(" ");
     var label = "【账号 " + (i + 1) + "/" + count + (detail ? " · " + detail : "") + "】\n";
-    blocks.push(label + (r && r.lines ? r.lines.join("\n") : ""));
+    blocks.push(label + zeekrQLCompact(r));
   }
 
   var tag = String(
@@ -1851,6 +1905,10 @@ function zeekrQLBaseEnv() {
     "）";
   var body = blocks.join("\n──────────\n");
   console.log("\n" + title + "\n" + body);
-  if (process.env.ZEEKR_NOTIFY !== "0") await zeekrQLNotify(title, body);
+  if (process.env.ZEEKR_NOTIFY !== "0") {
+    var chunks = zeekrQLSplit(body, 2800);
+    for (var part = 0; part < chunks.length; part++)
+      await zeekrQLNotify(title + (chunks.length > 1 ? "（" + (part + 1) + "/" + chunks.length + "）" : ""), chunks[part]);
+  }
   process.exit(fails ? 1 : 0);
 })();

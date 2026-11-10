@@ -2,7 +2,7 @@
 new Env("极氪签到·晚间场");
 cron: 30 21 * * *
 30 21 * * * zeekr_2130_all.js
-青龙订阅适配 v3.3.5；默认时区 UTC+8。
+青龙订阅适配 v3.3.6；默认时区 UTC+8。
 生成文件，请勿直接修改；时间在青龙定时任务中编辑。
 */
 /**
@@ -50,7 +50,7 @@ var ZEEKR_QL_SCHEDULE = {"mode": "all", "tag": "晚间场"};
  * 依赖注入：RT = { platform, env, http(), notify(), log(), finish() }
  * ========================================================================== */
 
-var ZEEKR_PORT_VERSION = "3.3.5";
+var ZEEKR_PORT_VERSION = "3.3.6";
 /* 签名密钥由 build.py 从本地 checkin.mjs 抽取后注入（避免密钥出现在源码/终端里被安全屏蔽器打码） */
 var ZEEKR_SECRET = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCz09z6e9WOcNq+nUMX8Vq1Xe2EmJxuR3XbturefioF)E(Fl";
 var ZEEKR_BASE = "https://api-gw-toc.zeekrlife.com";
@@ -1669,7 +1669,7 @@ function zeekrQLTokens() {
     var parts = String(process.env[keys[i]] || "").split(/[\r\n&]+/);
     for (var j = 0; j < parts.length; j++) {
       var t = parts[j].trim();
-      if (t && t.charAt(0) !== "#") list.push({ raw: t, index: (keys[i].match(/_(\d+)$/) || [])[1] || "" });
+      if (t && t.charAt(0) !== "#") list.push({ raw: t, index: (keys[i].match(/_(\d+)$/) || [])[1] || "", source: keys[i], position: list.length });
     }
   }
   return list;
@@ -1734,7 +1734,7 @@ async function zeekrQLReport(accountId, result) {
     var dest = new URL(url);
     if (dest.protocol !== "https:" || dest.username || dest.password || dest.search || dest.hash || dest.pathname !== "/api/report") return;
     var rawTag = String(ZEEKR_QL_SCHEDULE ? ZEEKR_QL_SCHEDULE.tag : (process.env.ZEEKR_TAG || ""));
-    var tagMap = {"凌晨场":"凌晨场", "早间场":"早间场", "晚间场":"晚间场", "凌晨场·补领":"凌晨补领", "早间场·补领":"早间补领", "晚间场·补领":"晚间补领"};
+    var tagMap = {"凌晨场":"凌晨场", "早间场":"早间场", "晚间场":"晚间场", "凌晨场·补领":"凌晨补领", "早间场·补领":"早间补领", "晚间场·补领":"晚间补领", "同步后签到":"同步后签到"};
     var tag = tagMap[rawTag] || "其他";
     var outcome = !result || result.ok !== true ? "error" : (result.result && Array.isArray(result.result.failed) && result.result.failed.length ? "partial" : "ok");
     var details = result && result.result;
@@ -1833,7 +1833,31 @@ function zeekrQLBaseEnv() {
 
 (async function () {
   var tokens = zeekrQLTokens();
-  var vals = tokens.length ? [] : zeekrQLVals();
+  var single = Object.prototype.hasOwnProperty.call(process.env, "ZEEKR_SINGLE_VARIABLE");
+  if (single) {
+    // ZEEKR_SINGLE_MODE_V336: capability marker for fail-closed launchers.
+    var selected = process.env.ZEEKR_SINGLE_VARIABLE;
+    // Deliberately exact and case-sensitive: never interpret a token as a name,
+    // never fall back to another account, including VAL aliases.
+    if (!/^ZEEKR_TOKEN(?:_\d+)?$/.test(selected) ||
+        !Object.prototype.hasOwnProperty.call(process.env, selected) ||
+        !String(process.env[selected]).trim() || /[\r\n&]/.test(process.env[selected]) ||
+        String(process.env[selected]).trim().charAt(0) === "#") {
+      console.log("[极氪签到] ❌ 单账号模式配置无效：请指定存在且仅含一个 Token 的环境变量名");
+      process.exit(1);
+      return;
+    }
+    tokens = tokens.filter(function (account) { return account.source === selected; });
+    if (tokens.length !== 1) {
+      console.log("[极氪签到] ❌ 单账号模式无法确定唯一账号，已停止");
+      process.exit(1);
+      return;
+    }
+    // A sync-triggered run is always a full run, regardless of entrypoint.
+    ZEEKR_QL_SCHEDULE = { mode: "all", tag: "同步后签到" };
+    console.log("[极氪签到] 单账号模式：仅执行 " + selected);
+  }
+  var vals = tokens.length || single ? [] : zeekrQLVals();
   var count = tokens.length || vals.length;
 
   if (!count) {
@@ -1886,8 +1910,9 @@ function zeekrQLBaseEnv() {
     await zeekrQLReport(identity.accountId, r);
     // Explicit suffix matches TOKEN_n / VAL_n; unindexed input uses run position.
     // Then the JSON array (run order), then JWT nickname / userName.
-    var nickname = zeekrQLDisplayText(process.env["ZEEKR_NICKNAME_" + (account.index || (i + 1))]) ||
-      zeekrQLDisplayText(nicknames[i]) || identity.nickname;
+    var originalPosition = account.position === undefined ? i : account.position;
+    var nickname = zeekrQLDisplayText(process.env["ZEEKR_NICKNAME_" + (account.index || (originalPosition + 1))]) ||
+      zeekrQLDisplayText(nicknames[originalPosition]) || identity.nickname;
     var detail = [identity.accountId, nickname].filter(function (s) { return !!s; }).join(" ");
     var label = "【账号 " + (i + 1) + "/" + count + (detail ? " · " + detail : "") + "】\n";
     blocks.push(label + zeekrQLCompact(r));

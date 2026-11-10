@@ -204,6 +204,8 @@ Egern「抓取 Token」开启时才抓取、存储和通知；关闭时连调试
 
 ## 青龙昵称
 
+临时单账号执行可在单次进程中设置 `ZEEKR_SINGLE_VARIABLE=ZEEKR_TOKEN_2`（值是变量名，不是 Token），例如 `ZEEKR_SINGLE_VARIABLE=ZEEKR_TOKEN_2 node /实际路径/zeekr.qinglong.js`。仅接受 `ZEEKR_TOKEN` 或 `ZEEKR_TOKEN_<数字>`，目标必须存在、非空且仅有一个 Token（不能含换行或 `&`）；无效时直接退出，不执行其他账号。未设置时保持多账号行为。不要将此变量设为全局持久变量，否则定时任务也会只运行该账号。单账号模式统一为 `all`、场次「同步后签到」；昵称、通知和个人记录上报保留。详见 [青龙说明](configs/qinglong.md)。
+
 凭据支持 `ZEEKR_TOKEN` 换行分隔，或 `ZEEKR_TOKEN_1/2/...`；兼容 `ZEEKR_VAL` JSON。
 
 昵称优先级：`ZEEKR_NICKNAME_n` → `ZEEKR_NICKNAMES` JSON 数组条目（例如 `["主账号","家人"]`）→ JWT `accountInfoDTO.nickname` → `userName`。没有昵称就只显示 ID。
@@ -331,6 +333,8 @@ python3 tests/configs-check.py  # 需 PyYAML
 青龙脚本可选读取 `ZEEKR_REPORT_URL` 和 `ZEEKR_REPORT_KEY`；仅在二者同时配置且地址为 HTTPS、路径为 `/api/report` 时上报。每个账号发送账号 ID、场次、结构化结果及该账号经过敏感信息过滤的通知正文，不发送 Token 或跨账号混合日志。未配置时没有上报请求；上报失败不影响签到。地址必须指向你信任的服务，密钥须保密；不要填不可信的 URL。该机制不自动创建或运行任务。
 
 ## 更新记录
+
+- 2026-11-10 · v3.3.6：青龙新增进程级单账号选择，严格校验目标并保留昵称、通知和个人记录上报；常规定时默认不变。手机端仅同步版本号，无需重新导入配置。
 
 - **2026-11-10（UTC+8）· v3.3.5**：青龙主签到及补领通知精简为账号状态、步数、领取结果、待完成事项及异常；超长通知自动分条，原始运行日志及个人网页详细记录不变。青龙更新订阅脚本即可生效，无需修改任务定时。其他客户端仅同步版本号。
 

@@ -2,7 +2,7 @@
 new Env("极氪签到·晚间场");
 cron: 30 21 * * *
 30 21 * * * zeekr_2130_all.js
-青龙订阅适配 v3.3.6；默认时区 UTC+8。
+青龙订阅适配 v3.3.7；默认时区 UTC+8。
 生成文件，请勿直接修改；时间在青龙定时任务中编辑。
 */
 /**
@@ -50,7 +50,7 @@ var ZEEKR_QL_SCHEDULE = {"mode": "all", "tag": "晚间场"};
  * 依赖注入：RT = { platform, env, http(), notify(), log(), finish() }
  * ========================================================================== */
 
-var ZEEKR_PORT_VERSION = "3.3.6";
+var ZEEKR_PORT_VERSION = "3.3.7";
 /* 签名密钥由 build.py 从本地 checkin.mjs 抽取后注入（避免密钥出现在源码/终端里被安全屏蔽器打码） */
 var ZEEKR_SECRET = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCz09z6e9WOcNq+nUMX8Vq1Xe2EmJxuR3XbturefioF)E(Fl";
 var ZEEKR_BASE = "https://api-gw-toc.zeekrlife.com";
@@ -1057,6 +1057,10 @@ async function zeekrClaimSevenDayLottery(ctx, lotteryList) {
           data.data.invoice.materialSnapshot.name) ||
         "七日连签奖励";
       claimed.push(prize);
+      if (typeof ctx.RT.monthlyReward === "function") {
+        try { await ctx.RT.monthlyReward({ kind: "seven", id: String(item.id || ""), prize: String(prize) }); }
+        catch (e) { ctx.out("⚠️ 本月极值统计记录失败，请查看青龙存储权限"); }
+      }
       ctx.out("🎁 七日连签奖励已领: " + prize);
     } else {
       var why = zeekrFailReason(data.data, data.msg || "七日连签领取失败");
@@ -1102,6 +1106,11 @@ async function zeekrClaimIntegral(ctx, integralList) {
     });
     if (data.code === "000000") {
       total += val;
+      if (typeof ctx.RT.monthlyReward === "function") {
+        try { await ctx.RT.monthlyReward({ kind: "integral", id: String(it.id || ""), value: val,
+          source: [it.sourceId, it.sceneRemark, it.sceneCode, it.eventCode].filter(Boolean).join(" ") }); }
+        catch (e) { ctx.out("⚠️ 本月极值统计记录失败，请查看青龙存储权限"); }
+      }
       ctx.out("🏆 极值已领: +" + val);
     } else {
       var why = (data.msg || JSON.stringify(data)) + "";
@@ -1757,6 +1766,70 @@ async function zeekrQLReport(accountId, result) {
   }
 }
 
+// Per-account, append-only local receipts; credentials and reward text are never stored.
+function zeekrQLMonth(now) {
+  return new Date((now === undefined ? Date.now() : now) + 8 * 3600000).toISOString().slice(0, 7);
+}
+function zeekrQLMonthlyDir(accountId, now) {
+  if (!/^\d{1,30}$/.test(accountId || "")) throw new Error("missing account identity");
+  var path = require("path"), crypto = require("crypto");
+  var base = process.env.dir_data || (process.env.QL_DIR ? path.join(process.env.QL_DIR, "data") : path.join(process.cwd(), ".zeekr-data"));
+  var key = crypto.createHash("sha256").update(accountId).digest("hex");
+  return path.join(base, "zeekr-monthly-v1", zeekrQLMonth(now), key);
+}
+function zeekrQLMonthlyRecord(accountId, receipt, now) {
+  var fs = require("fs"), path = require("path"), crypto = require("crypto");
+  if (!receipt || !receipt.id || !/^(integral|seven)$/.test(receipt.kind)) throw new Error("invalid reward receipt");
+  var kind, amount = 0;
+  if (receipt.kind === "integral") {
+    amount = Number(receipt.value);
+    if (!Number.isSafeInteger(amount) || amount < 0 || amount > 1000000) throw new Error("invalid reward amount");
+    kind = /签到|sign[_\s-]*in|daily[_\s-]*sign/i.test(String(receipt.source || "")) ? "sign" : "unknown_integral";
+  } else {
+    var prize = String(receipt.prize || "").trim();
+    var match = prize.match(/^(?:极值\s*)?(\d+)\s*(?:KR|极值)$/i);
+    if (!match) match = prize.match(/^极值\s*(\d+)$/);
+    kind = match ? "seven" : "unknown_seven";
+    if (match) {
+      amount = Number(match[1]);
+      if (!Number.isSafeInteger(amount) || amount > 1000000) throw new Error("invalid prize amount");
+    }
+  }
+  var dir = zeekrQLMonthlyDir(accountId, now);
+  fs.mkdirSync(dir, { recursive: true, mode: 448 });
+  var file = path.join(dir, crypto.createHash("sha256").update(receipt.kind + "\0" + receipt.id).digest("hex") + ".json");
+  try { fs.writeFileSync(file, JSON.stringify({ kind: kind, amount: amount }), { flag: "wx", mode: 384 }); }
+  catch (e) { if (e.code !== "EEXIST") throw e; }
+}
+function zeekrQLMonthlySummary(accountId, now) {
+  var fs = require("fs"), path = require("path"), dir = zeekrQLMonthlyDir(accountId, now);
+  var summary = { sign: 0, seven: 0, unknownIntegral: 0, unknownSeven: 0, invalid: 0 };
+  var names;
+  try { names = fs.readdirSync(dir); } catch (e) { if (e.code === "ENOENT") return summary; throw e; }
+  names.filter(function (name) { return /^[0-9a-f]{64}\.json$/.test(name); }).forEach(function (name) {
+    try {
+      var row = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
+      if (!row || !Number.isSafeInteger(row.amount) || row.amount < 0 || row.amount > 1000000) throw new Error("invalid record");
+      if (row.kind === "sign") summary.sign += row.amount;
+      else if (row.kind === "seven") summary.seven += row.amount;
+      else if (row.kind === "unknown_integral") summary.unknownIntegral += row.amount;
+      else if (row.kind === "unknown_seven") summary.unknownSeven++;
+      else throw new Error("invalid kind");
+    } catch (e) { summary.invalid++; }
+  });
+  return summary;
+}
+function zeekrQLMonthlyText(accountId) {
+  try {
+    var s = zeekrQLMonthlySummary(accountId);
+    var text = "📊 本月签到极值：" + s.sign + "/10（启用后） · 七日极值：" + s.seven;
+    if (s.unknownIntegral) text += " · 来源待确认：" + s.unknownIntegral;
+    if (s.unknownSeven) text += " · 七日奖励待识别：" + s.unknownSeven + "项";
+    if (s.invalid) text += " · ⚠️ 统计记录异常";
+    return text;
+  } catch (e) { return "⚠️ 本月极值统计不可用"; }
+}
+
 // Compact only the Qinglong notification; original account lines remain in logs/reporting.
 function zeekrQLCompact(result) {
   var lines = result && Array.isArray(result.lines) ? result.lines : [];
@@ -1881,6 +1954,7 @@ function zeekrQLBaseEnv() {
   for (var i = 0; i < count; i++) {
     var env = zeekrQLBaseEnv();
     var account = tokens.length ? tokens[i] : vals[i];
+    var identity = zeekrQLIdentity(account.raw);
     if (tokens.length) env.ZEEKR_TOKEN = account.raw;
     else env.ZEEKR_VAL = account.raw;
     var RT = {
@@ -1889,6 +1963,7 @@ function zeekrQLBaseEnv() {
         "❌ 缺少 Token：请在青龙环境变量里配置 ZEEKR_TOKEN（手机抓一次，把通知里那行 Bearer … 复制过来）",
       env: env,
       http: zeekrQLHttp,
+      monthlyReward: function (receipt) { zeekrQLMonthlyRecord(identity.accountId, receipt); },
       notify: null, // 多个账号合并成一条通知，最后统一发
       log: function (m) {
         console.log(m);
@@ -1906,7 +1981,6 @@ function zeekrQLBaseEnv() {
       };
     }
     if (r && r.ok === false) fails++;
-    var identity = zeekrQLIdentity(account.raw);
     await zeekrQLReport(identity.accountId, r);
     // Explicit suffix matches TOKEN_n / VAL_n; unindexed input uses run position.
     // Then the JSON array (run order), then JWT nickname / userName.
@@ -1915,7 +1989,7 @@ function zeekrQLBaseEnv() {
       zeekrQLDisplayText(nicknames[originalPosition]) || identity.nickname;
     var detail = [identity.accountId, nickname].filter(function (s) { return !!s; }).join(" ");
     var label = "【账号 " + (i + 1) + "/" + count + (detail ? " · " + detail : "") + "】\n";
-    blocks.push(label + zeekrQLCompact(r));
+    blocks.push(label + zeekrQLCompact(r) + "\n" + zeekrQLMonthlyText(identity.accountId));
   }
 
   var tag = String(

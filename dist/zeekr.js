@@ -44,7 +44,7 @@ var ZEEKR_DEFAULT_CONFIG = {
  * 依赖注入：RT = { platform, env, http(), notify(), log(), finish() }
  * ========================================================================== */
 
-var ZEEKR_PORT_VERSION = "3.3.6";
+var ZEEKR_PORT_VERSION = "3.3.7";
 /* 签名密钥由 build.py 从本地 checkin.mjs 抽取后注入（避免密钥出现在源码/终端里被安全屏蔽器打码） */
 var ZEEKR_SECRET = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCz09z6e9WOcNq+nUMX8Vq1Xe2EmJxuR3XbturefioF)E(Fl";
 var ZEEKR_BASE = "https://api-gw-toc.zeekrlife.com";
@@ -1051,6 +1051,10 @@ async function zeekrClaimSevenDayLottery(ctx, lotteryList) {
           data.data.invoice.materialSnapshot.name) ||
         "七日连签奖励";
       claimed.push(prize);
+      if (typeof ctx.RT.monthlyReward === "function") {
+        try { await ctx.RT.monthlyReward({ kind: "seven", id: String(item.id || ""), prize: String(prize) }); }
+        catch (e) { ctx.out("⚠️ 本月极值统计记录失败，请查看青龙存储权限"); }
+      }
       ctx.out("🎁 七日连签奖励已领: " + prize);
     } else {
       var why = zeekrFailReason(data.data, data.msg || "七日连签领取失败");
@@ -1096,6 +1100,11 @@ async function zeekrClaimIntegral(ctx, integralList) {
     });
     if (data.code === "000000") {
       total += val;
+      if (typeof ctx.RT.monthlyReward === "function") {
+        try { await ctx.RT.monthlyReward({ kind: "integral", id: String(it.id || ""), value: val,
+          source: [it.sourceId, it.sceneRemark, it.sceneCode, it.eventCode].filter(Boolean).join(" ") }); }
+        catch (e) { ctx.out("⚠️ 本月极值统计记录失败，请查看青龙存储权限"); }
+      }
       ctx.out("🏆 极值已领: +" + val);
     } else {
       var why = (data.msg || JSON.stringify(data)) + "";

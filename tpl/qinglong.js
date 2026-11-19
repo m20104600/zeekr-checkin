@@ -303,14 +303,15 @@ function zeekrQLMonthlyRecord(accountId, receipt, now) {
   if (receipt.kind === "integral") {
     amount = Number(receipt.value);
     if (!Number.isSafeInteger(amount) || amount < 0 || amount > 1000000) throw new Error("invalid reward amount");
-    // Source metadata varies; a one-point unlabelled ball is only a tentative
-    // daily reward, not proof. Explicit exceptions must win over inference.
+    // User-provided reward rules: carbon-ball 1 KR is the monthly daily
+    // reward; 5 KR is a cumulative-carbon milestone. Explicit conflicting
+    // sources must take precedence; seven-day draws use a separate path.
     var source = String(receipt.source || "");
     if (/生日|birthday/i.test(source)) kind = "birthday";
     else if (/七日|七天|7日|7天|7[_\s-]*day|seven[_\s-]*day|连续签到/i.test(source)) kind = "unknown_integral";
     else if (/里程碑|累计.{0,12}(?:减碳|碳减排|领取)|(?:减碳|碳减排).{0,12}(?:达标|累计)|milestone/i.test(source)) kind = "milestone";
     else if (/每日(?:登录|签到)|每日.{0,8}(?:减碳|能量)|daily[_\s-]*(?:login|sign)|(?:^|\s)sign[_\s-]*in(?:$|\s)/i.test(source)) kind = "sign";
-    else kind = amount === 1 ? "daily_estimate" : "unknown_integral";
+    else kind = amount === 1 ? "sign" : amount === 5 ? "milestone" : "unknown_integral";
   } else {
     var prize = String(receipt.prize || "").trim();
     var match = prize.match(/^(?:极值\s*)?(\d+)\s*(?:KR|极值)$/i);
@@ -337,7 +338,8 @@ function zeekrQLMonthlySummary(accountId, now) {
       var row = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
       if (!row || !Number.isSafeInteger(row.amount) || row.amount < 0 || row.amount > 1000000) throw new Error("invalid record");
       if (row.kind === "sign") summary.sign += row.amount;
-      else if (row.kind === "daily_estimate") summary.dailyEstimate += row.amount;
+      else if (row.kind === "daily_estimate" && row.amount === 1) summary.sign += 1; // v3.3.8 unlabelled one-KR receipt
+      else if (row.kind === "daily_estimate") summary.unknownIntegral += row.amount;
       else if (row.kind === "milestone") summary.milestone += row.amount;
       else if (row.kind === "birthday") summary.birthday += row.amount;
       else if (row.kind === "seven") summary.seven += row.amount;
@@ -351,12 +353,12 @@ function zeekrQLMonthlySummary(accountId, now) {
 function zeekrQLMonthlyText(accountId) {
   try {
     var s = zeekrQLMonthlySummary(accountId);
-    var text = "📊 本月每日登录极值：已确认 " + s.sign + "/10（启用后）";
-    if (s.dailyEstimate) text += " · 疑似每日 " + s.dailyEstimate + "（待核实）";
-    text += " · 本月达标极值：" + s.milestone + " · 七日极值：" + s.seven;
-    if (s.birthday) text += " · 生日极值：" + s.birthday;
-    if (s.unknownIntegral) text += " · 来源待确认：" + s.unknownIntegral;
-    if (s.unknownSeven) text += " · 七日奖励待识别：" + s.unknownSeven + "项";
+    var text = "📊 本月签到极值：" + s.sign + "/10（脚本记录）";
+    text += " · 减碳达标：" + s.milestone + " KR · 七日极值：" + s.seven + " KR";
+    if (s.birthday) text += " · 其他已标注奖励：" + s.birthday + " KR";
+    if (s.unknownIntegral) text += " · 未归类记录：" + s.unknownIntegral + " KR";
+    if (s.unknownSeven) text += " · 七日另有 " + s.unknownSeven + " 项未识别";
+    if (s.sign > 10) text += " · ⚠️ 签到记录超过月上限，请核对";
     if (s.invalid) text += " · ⚠️ 统计记录异常";
     return text;
   } catch (e) { return "⚠️ 本月极值统计不可用"; }

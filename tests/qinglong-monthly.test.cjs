@@ -23,22 +23,31 @@ test('account isolation, duplicate receipts, UTC+8 month rollover',t=>{
  assert.throws(()=>x.zeekrQLMonthlyRecord('123',{id:'x',kind:'integral',value:-1},now));
  assert.throws(()=>x.zeekrQLMonthlySummary('../bad',now));
 });
-test('daily estimates, milestones, birthdays and seven-day rewards never mix',t=>{
+test('classify new carbon rewards by amount, preserve ambiguous old records',t=>{
  const {x}=setup(t), now=Date.parse('2026-11-12T00:00:00Z'), a='123';
  for(const item of [
   {id:'1',kind:'integral',value:1,source:''},
-  {id:'2',kind:'integral',value:5,source:'累计领取减碳达标500千克'},
-  {id:'3',kind:'integral',value:1,source:'每日登录生日奖励'},
+  {id:'2',kind:'integral',value:5,source:''},
+  {id:'3',kind:'integral',value:1,source:'生日奖励'},
   {id:'4',kind:'integral',value:1,source:'连续签到七日奖励'},
   {id:'5',kind:'integral',value:1,source:'每日登录Z-Green'},
   {id:'6',kind:'seven',prize:'5Kr'}
  ])x.zeekrQLMonthlyRecord(a,item,now);
  const dir=x.zeekrQLMonthlyDir(a,now);
  fs.writeFileSync(path.join(dir,'a'.repeat(64)+'.json'),JSON.stringify({kind:'unknown_integral',amount:1}));
+ fs.writeFileSync(path.join(dir,'b'.repeat(64)+'.json'),JSON.stringify({kind:'daily_estimate',amount:1}));
  const s=x.zeekrQLMonthlySummary(a,now);
- assert.deepEqual([s.sign,s.dailyEstimate,s.milestone,s.birthday,s.seven,s.unknownIntegral],[1,1,5,1,5,2]);
- // Old v3.3.7 unknown receipts remain unknown; no blind migration.
+ assert.deepEqual([s.sign,s.milestone,s.birthday,s.seven,s.unknownIntegral],[3,5,1,5,2]);
  assert.equal(JSON.parse(fs.readFileSync(path.join(dir,'a'.repeat(64)+'.json'))).kind,'unknown_integral');
+});
+
+test('monthly notification separates rewards and exposes unrecoverable records',t=>{
+ const {x}=setup(t),now=Date.now(),a='123';
+ x.zeekrQLMonthlyRecord(a,{id:'a',kind:'integral',value:1,source:''},now);
+ x.zeekrQLMonthlyRecord(a,{id:'b',kind:'integral',value:5,source:''},now);
+ x.zeekrQLMonthlyRecord(a,{id:'c',kind:'seven',prize:'未知奖品'},now);
+ const dir=x.zeekrQLMonthlyDir(a,now);fs.writeFileSync(path.join(dir,'a'.repeat(64)+'.json'),JSON.stringify({kind:'unknown_integral',amount:1}));
+ const out=x.zeekrQLMonthlyText(a);assert.match(out,/签到极值：1\/10/);assert.match(out,/减碳达标：5 KR/);assert.match(out,/未归类记录：1 KR/);assert.match(out,/七日另有 1 项未识别/);assert.doesNotMatch(out,/疑似每日|来源待确认/);
 });
 
 test('invalid local records are reported, not counted',t=>{
@@ -55,7 +64,7 @@ test('generated Qinglong entry records and notifies per account',async t=>{
  const token='Bearer x.'+Buffer.from(JSON.stringify({sub:{accountInfoDTO:{accountId:'123456789'}}})).toString('base64url')+'.y';
  const ctx={calls,notices,Buffer,URL,setTimeout,clearTimeout,require,console,process:{env:{dir_data:dir,ZEEKR_TOKEN_1:token},exit:()=>{},cwd:()=>dir}};
  vm.createContext(ctx);await vm.runInContext(src,ctx);
- assert.equal(calls.length,1);assert.equal(notices.length,1);assert.match(notices[0],/本月每日登录极值：已确认 1\/10/);assert.match(notices[0],/七日极值：5/);
+ assert.equal(calls.length,1);assert.equal(notices.length,1);assert.match(notices[0],/本月签到极值：1\/10/);assert.match(notices[0],/七日极值：5 KR/);
 });
 
 test('claim helpers only record successful receipts, including seven-day prize',async t=>{

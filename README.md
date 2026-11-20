@@ -396,3 +396,9 @@ python3 tests/configs-check.py  # 需 PyYAML
   之前的双引号 `\d` 会让 Egern 直接报 YAML 解析错误；
   ③ 修正所有客户端**抓取正则多转义一层**的问题（原来 `\.` 写成 `\\.`，等于匹配"反斜杠+任意字符"，一条都命中不了），
   并新增 `tests/configs-check.py` 做回归（校验 YAML 可解析 + 每条正则真能匹配目标 URL + 插件/模块格式）。
+
+---
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/chart?repos=m20104600%2Fzeekr-checkin&type=date&legend=top-left)](https://www.star-history.com/?repos=m20104600%2Fzeekr-checkin&type=date&legend=top-left)

@@ -292,14 +292,6 @@ python3 tests/configs-check.py  # 需 PyYAML
 - 仅供个人学习与自用；上游接口/页面一旦调整可能失效，请自行评估使用风险。
 - 本仓库此前用于存放签到记录存档，现已改为多客户端脚本；旧存档已转入私有仓库。
 
-用到的接口（2026-09 实测）：
-`zgreen/center`（签到）、`walkData/initDayWalkData`（步数）、
-`taskProgress/taskMsg`（任务列表）、`invitation/pub/detail`（阅读）、
-`invitation/pub/list` + `clicks/fabulous`（点赞）、
-`carEnergy/getUncollectedBallsPageNew`（可领取）、
-`apply/batchApply`（碎片）、`carEnergy/collectedAllEnergy`（能量球）、
-`carEnergy/collectIntegralZeekrBalls`（极值）。
-
 ---
 
 ## 可选：个人签到结果上报
